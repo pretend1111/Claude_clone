@@ -6,6 +6,8 @@ const path = require('path');
 const config = require('./config');
 const { init: initDb } = require('./db/init');
 const authRoutes = require('./routes/auth');
+const conversationsRoutes = require('./routes/conversations');
+const auth = require('./middleware/auth');
 
 const app = express();
 const port = config.PORT;
@@ -38,9 +40,17 @@ app.use(
 app.use(express.json({ limit: '2mb' }));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/conversations', auth, conversationsRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  // eslint-disable-next-line no-console
+  console.error(err);
+  res.status(500).json({ error: '服务器内部错误' });
 });
 
 app.listen(port, () => {
