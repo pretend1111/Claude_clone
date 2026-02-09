@@ -32,7 +32,7 @@ function init() {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       title TEXT DEFAULT '新对话',
-      model TEXT DEFAULT 'claude-opus-4-20250514',
+      model TEXT DEFAULT 'claude-opus-4-6-thinking',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
