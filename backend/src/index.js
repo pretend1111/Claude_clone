@@ -8,7 +8,9 @@ const { init: initDb } = require('./db/init');
 const authRoutes = require('./routes/auth');
 const conversationsRoutes = require('./routes/conversations');
 const chatRoutes = require('./routes/chat');
+const userRoutes = require('./routes/user');
 const auth = require('./middleware/auth');
+const { chatRateLimit, authRateLimit } = require('./middleware/rateLimit');
 
 const app = express();
 const port = config.PORT;
@@ -40,9 +42,10 @@ app.use(
 
 app.use(express.json({ limit: '2mb' }));
 
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authRateLimit, authRoutes);
 app.use('/api/conversations', auth, conversationsRoutes);
-app.use('/api/chat', auth, chatRoutes);
+app.use('/api/chat', auth, chatRateLimit, chatRoutes);
+app.use('/api/user', auth, userRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
