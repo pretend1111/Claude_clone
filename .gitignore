@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+AGENTS.md
+backend/backend dev guide.md
