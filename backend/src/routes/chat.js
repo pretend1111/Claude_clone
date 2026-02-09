@@ -91,6 +91,12 @@ function safeReadFileBase64(filePath) {
 }
 
 router.post('/', async (req, res, next) => {
+  console.log('[chat] enter', {
+    userId: req.userId,
+    hasBody: !!req.body,
+    contentType: req.headers['content-type'],
+  });
+
   const { conversation_id: conversationId, message, attachments } = req.body || {};
 
   if (typeof conversationId !== 'string' || conversationId.length === 0) {
@@ -107,6 +113,13 @@ router.post('/', async (req, res, next) => {
       .prepare('SELECT id, user_id, model FROM conversations WHERE id = ?')
       .get(conversationId);
 
+    console.log('[chat] conversation loaded', {
+      found: !!conversation,
+      conversationId,
+      owner: conversation ? conversation.user_id : null,
+      model: conversation ? conversation.model : null,
+    });
+
     if (!conversation) {
       return res.status(404).json({ error: '对话不存在' });
     }
@@ -117,6 +130,14 @@ router.post('/', async (req, res, next) => {
     const user = db
       .prepare('SELECT token_used, token_quota, storage_used, storage_quota FROM users WHERE id = ?')
       .get(req.userId);
+
+    console.log('[chat] user loaded', {
+      found: !!user,
+      token_used: user ? user.token_used : null,
+      token_quota: user ? user.token_quota : null,
+      storage_used: user ? user.storage_used : null,
+      storage_quota: user ? user.storage_quota : null,
+    });
 
     if (!user) {
       return res.status(401).json({ error: '用户不存在' });
@@ -223,6 +244,13 @@ router.post('/', async (req, res, next) => {
       });
 
       tx();
+
+      console.log('[chat] message/attachments transaction committed', {
+        messageId,
+        conversationId,
+        hasAttachments,
+        totalUploadSize,
+      });
     } catch (err) {
       for (const filePath of writtenFiles) {
         try {
@@ -303,6 +331,14 @@ router.post('/', async (req, res, next) => {
       anthropicMessages.push({ role: row.role, content: parts });
     }
 
+    const firstMsgPreview = anthropicMessages[0]
+      ? JSON.stringify(anthropicMessages[0]).slice(0, 500)
+      : null;
+    console.log('[chat] anthropicMessages built', {
+      count: anthropicMessages.length,
+      first: firstMsgPreview,
+    });
+
     const prunedMessages = pruneAnthropicMessages(anthropicMessages);
 
     const model = conversation.model || 'claude-opus-4-6-thinking';
@@ -311,23 +347,33 @@ router.post('/', async (req, res, next) => {
 
     req.on('close', () => {
       clientClosed = true;
+      console.log('[chat] client closed, aborting upstream');
       controller.abort();
     });
 
-    const upstream = await fetch(`${config.API_BASE_URL}/v1/messages`, {
+    const url = `${config.API_BASE_URL}/v1/messages`;
+    const body = JSON.stringify({
+      model,
+      max_tokens: 4096,
+      stream: true,
+      messages: prunedMessages,
+    });
+    console.log('[chat] fetch upstream', { url, bodyLength: body.length });
+
+    const upstream = await fetch(url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-api-key': config.API_KEY,
         'anthropic-version': '2023-06-01',
       },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4096,
-        stream: true,
-        messages: prunedMessages,
-      }),
+      body,
       signal: controller.signal,
+    });
+
+    console.log('[chat] upstream response received', {
+      status: upstream.status,
+      ok: upstream.ok,
     });
 
     if (!upstream.ok) {
@@ -355,6 +401,8 @@ router.post('/', async (req, res, next) => {
         if (clientClosed) break;
         if (!value) continue;
 
+        console.log('[chat] chunk received', { length: value.length });
+
         const ok = res.write(Buffer.from(value));
         if (!ok) {
           await new Promise((resolve) => res.once('drain', resolve));
@@ -371,6 +419,7 @@ router.post('/', async (req, res, next) => {
 
     return undefined;
   } catch (err) {
+    console.error('[chat] error', err);
     if (err && err.name === 'AbortError') {
       return undefined;
     }
@@ -379,4 +428,3 @@ router.post('/', async (req, res, next) => {
 });
 
 module.exports = router;
-

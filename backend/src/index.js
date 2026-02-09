@@ -1,9 +1,9 @@
+const config = require('./config');
+
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-
-const config = require('./config');
 const { init: initDb } = require('./db/init');
 const authRoutes = require('./routes/auth');
 const conversationsRoutes = require('./routes/conversations');
