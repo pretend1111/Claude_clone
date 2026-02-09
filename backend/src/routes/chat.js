@@ -91,12 +91,6 @@ function safeReadFileBase64(filePath) {
 }
 
 router.post('/', async (req, res, next) => {
-  console.log('[chat] enter', {
-    userId: req.userId,
-    hasBody: !!req.body,
-    contentType: req.headers['content-type'],
-  });
-
   const { conversation_id: conversationId, message, attachments } = req.body || {};
 
   if (typeof conversationId !== 'string' || conversationId.length === 0) {
@@ -113,13 +107,6 @@ router.post('/', async (req, res, next) => {
       .prepare('SELECT id, user_id, model FROM conversations WHERE id = ?')
       .get(conversationId);
 
-    console.log('[chat] conversation loaded', {
-      found: !!conversation,
-      conversationId,
-      owner: conversation ? conversation.user_id : null,
-      model: conversation ? conversation.model : null,
-    });
-
     if (!conversation) {
       return res.status(404).json({ error: '对话不存在' });
     }
@@ -130,14 +117,6 @@ router.post('/', async (req, res, next) => {
     const user = db
       .prepare('SELECT token_used, token_quota, storage_used, storage_quota FROM users WHERE id = ?')
       .get(req.userId);
-
-    console.log('[chat] user loaded', {
-      found: !!user,
-      token_used: user ? user.token_used : null,
-      token_quota: user ? user.token_quota : null,
-      storage_used: user ? user.storage_used : null,
-      storage_quota: user ? user.storage_quota : null,
-    });
 
     if (!user) {
       return res.status(401).json({ error: '用户不存在' });
@@ -244,13 +223,6 @@ router.post('/', async (req, res, next) => {
       });
 
       tx();
-
-      console.log('[chat] message/attachments transaction committed', {
-        messageId,
-        conversationId,
-        hasAttachments,
-        totalUploadSize,
-      });
     } catch (err) {
       for (const filePath of writtenFiles) {
         try {
@@ -331,25 +303,11 @@ router.post('/', async (req, res, next) => {
       anthropicMessages.push({ role: row.role, content: parts });
     }
 
-    const firstMsgPreview = anthropicMessages[0]
-      ? JSON.stringify(anthropicMessages[0]).slice(0, 500)
-      : null;
-    console.log('[chat] anthropicMessages built', {
-      count: anthropicMessages.length,
-      first: firstMsgPreview,
-    });
-
     const prunedMessages = pruneAnthropicMessages(anthropicMessages);
 
     const model = conversation.model || 'claude-opus-4-6-thinking';
     const controller = new AbortController();
     let clientClosed = false;
-
-    req.on('close', () => {
-      clientClosed = true;
-      console.log('[chat] client closed, aborting upstream');
-      controller.abort();
-    });
 
     const url = `${config.API_BASE_URL}/v1/messages`;
     const body = JSON.stringify({
@@ -358,7 +316,6 @@ router.post('/', async (req, res, next) => {
       stream: true,
       messages: prunedMessages,
     });
-    console.log('[chat] fetch upstream', { url, bodyLength: body.length });
 
     const upstream = await fetch(url, {
       method: 'POST',
@@ -369,11 +326,6 @@ router.post('/', async (req, res, next) => {
       },
       body,
       signal: controller.signal,
-    });
-
-    console.log('[chat] upstream response received', {
-      status: upstream.status,
-      ok: upstream.ok,
     });
 
     if (!upstream.ok) {
@@ -392,6 +344,12 @@ router.post('/', async (req, res, next) => {
     res.setHeader('X-Accel-Buffering', 'no');
     if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
+    // 只在已经开始 SSE 输出后才监听 close，避免等待上游响应期间误触发 abort
+    req.on('close', () => {
+      clientClosed = true;
+      controller.abort();
+    });
+
     const reader = upstream.body.getReader();
     try {
       // eslint-disable-next-line no-constant-condition
@@ -400,8 +358,6 @@ router.post('/', async (req, res, next) => {
         if (done) break;
         if (clientClosed) break;
         if (!value) continue;
-
-        console.log('[chat] chunk received', { length: value.length });
 
         const ok = res.write(Buffer.from(value));
         if (!ok) {
