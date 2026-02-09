@@ -49,7 +49,6 @@ function init() {
     );
 
     CREATE TABLE IF NOT EXISTS attachments (
-      id TEXT PRIMARY KEY,
       message_id TEXT NOT NULL,
       user_id TEXT NOT NULL,
       file_type TEXT NOT NULL CHECK (file_type IN ('image')),
@@ -77,9 +76,16 @@ function getDb() {
   return dbInstance || init();
 }
 
+function close() {
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = undefined;
+  }
+}
+
 module.exports = {
   DB_PATH,
   getDb,
   init,
+  close,
 };
-
