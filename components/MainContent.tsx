@@ -16,7 +16,7 @@ const MainContent = () => {
       </div>
 
       {/* Centered Content */}
-      <div className="flex-1 flex flex-col items-center justify-center w-full max-w-[48rem] mx-auto px-4 -mt-16">
+      <div className="flex-1 flex flex-col items-center justify-center w-full max-w-[48rem] mx-auto px-4 -mt-8 pl-12">
         
         {/* Header: Icon + Text */}
         <div className="flex items-center gap-4 mb-10">
