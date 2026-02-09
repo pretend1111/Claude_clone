@@ -7,6 +7,7 @@ const config = require('./config');
 const { init: initDb } = require('./db/init');
 const authRoutes = require('./routes/auth');
 const conversationsRoutes = require('./routes/conversations');
+const chatRoutes = require('./routes/chat');
 const auth = require('./middleware/auth');
 
 const app = express();
@@ -41,6 +42,7 @@ app.use(express.json({ limit: '2mb' }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/conversations', auth, conversationsRoutes);
+app.use('/api/chat', auth, chatRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
