@@ -22,6 +22,10 @@ async function request(path: string, options: RequestInit = {}) {
     window.location.href = '/login';
     throw new Error('认证失效');
   }
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || `Request failed: ${res.status}`);
+  }
   return res;
 }
 
@@ -59,10 +63,10 @@ export async function getConversations() {
   return res.json();
 }
 
-export async function createConversation(title?: string) {
+export async function createConversation(title?: string, model?: string) {
   const res = await request('/conversations', {
     method: 'POST',
-    body: JSON.stringify({ title: title || 'New chat' }),
+    body: JSON.stringify({ title: title || 'New chat', model }),
   });
   return res.json();
 }
@@ -87,11 +91,11 @@ export async function updateConversation(id: string, data: any) {
 
 // 流式对话（核心）
 export async function sendMessage(
-  conversationId: string, 
-  message: string, 
-  attachments: any[] | null, 
-  onDelta: (delta: string, full: string) => void, 
-  onDone: (full: string) => void, 
+  conversationId: string,
+  message: string,
+  attachments: any[] | null,
+  onDelta: (delta: string, full: string) => void,
+  onDone: (full: string) => void,
   onError: (err: string) => void
 ) {
   const token = getToken();
