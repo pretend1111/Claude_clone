@@ -7,6 +7,12 @@ import Auth from './components/Auth';
 const Layout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [newChatKey, setNewChatKey] = useState(0);
+
+  const handleNewChat = () => {
+    setNewChatKey(prev => prev + 1);
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   // Layout Tuner State
   const [tunerConfig, setTunerConfig] = useState({
@@ -46,12 +52,14 @@ const Layout = () => {
         isCollapsed={isSidebarCollapsed}
         toggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         refreshTrigger={refreshTrigger}
+        onNewChatClick={handleNewChat}
         tunerConfig={tunerConfig}
         setTunerConfig={setTunerConfig}
       />
       <div className="flex-1 flex flex-col h-full min-w-0">
         <MainContent
-          onNewChat={() => setRefreshTrigger(prev => prev + 1)}
+          onNewChat={handleNewChat}
+          resetKey={newChatKey}
           tunerConfig={tunerConfig}
         />
       </div>

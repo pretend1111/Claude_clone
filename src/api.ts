@@ -64,9 +64,13 @@ export async function getConversations() {
 }
 
 export async function createConversation(title?: string, model?: string) {
+  const body: any = { model };
+  if (title !== undefined) {
+    body.title = title;
+  }
   const res = await request('/conversations', {
     method: 'POST',
-    body: JSON.stringify({ title: title || 'New chat', model }),
+    body: JSON.stringify(body),
   });
   return res.json();
 }
@@ -89,6 +93,26 @@ export async function updateConversation(id: string, data: any) {
   return res.json();
 }
 
+// 手动压缩对话
+export async function compactConversation(
+  id: string,
+  instruction?: string
+): Promise<{ summary: string; tokensSaved: number; messagesCompacted: number }> {
+  const res = await request(`/conversations/${id}/compact`, {
+    method: 'POST',
+    body: JSON.stringify({ instruction }),
+  });
+  return res.json();
+}
+
+// 删除指定消息及其后续消息
+export async function deleteMessagesFrom(conversationId: string, messageId: string) {
+  const res = await request(`/conversations/${conversationId}/messages/${messageId}`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+
 // 流式对话（核心）
 export async function sendMessage(
   conversationId: string,
@@ -96,9 +120,14 @@ export async function sendMessage(
   attachments: any[] | null,
   onDelta: (delta: string, full: string) => void,
   onDone: (full: string) => void,
-  onError: (err: string) => void
+  onError: (err: string) => void,
+  onThinking?: (thinking: string, full: string) => void,
+  onSystem?: (event: string, message: string, data: any) => void,
+  onCitations?: (citations: Array<{ url: string; title: string; cited_text?: string }>) => void,
+  signal?: AbortSignal
 ) {
   const token = getToken();
+  let fullText = '';
   try {
     const res = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
@@ -111,6 +140,7 @@ export async function sendMessage(
         message,
         attachments: attachments || undefined,
       }),
+      signal,
     });
 
     if (!res.ok) {
@@ -124,7 +154,7 @@ export async function sendMessage(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let fullText = '';
+    let thinkingText = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -145,10 +175,49 @@ export async function sendMessage(
         try {
           const parsed = JSON.parse(data);
 
+          // 处理 system 事件（如 compaction 通知）
+          if (parsed.type === 'system') {
+            if (onSystem) {
+              onSystem(parsed.event, parsed.message, parsed);
+            }
+            continue;
+          }
+
+          // 处理 status 事件（如搜索状态通知）
+          if (parsed.type === 'status') {
+            if (onSystem) {
+              onSystem('status', parsed.message, parsed);
+            }
+            continue;
+          }
+
+          // 处理搜索来源事件
+          if (parsed.type === 'search_sources') {
+            if (onCitations && Array.isArray(parsed.sources)) {
+              onCitations(parsed.sources);
+            }
+            continue;
+          }
+
+          // 处理 thinking 内容
           if (parsed.type === 'content_block_delta' && parsed.delta) {
             if (parsed.delta.type === 'text_delta' && parsed.delta.text) {
               fullText += parsed.delta.text;
               onDelta(parsed.delta.text, fullText);
+            }
+            if (parsed.delta.type === 'thinking_delta' && parsed.delta.thinking) {
+              thinkingText += parsed.delta.thinking;
+              if (onThinking) {
+                onThinking(parsed.delta.thinking, thinkingText);
+              }
+            }
+          }
+
+          // 处理 content_block_start 来识别 thinking block
+          if (parsed.type === 'content_block_start' && parsed.content_block) {
+            if (parsed.content_block.type === 'thinking' && onThinking) {
+              // 新的 thinking block 开始
+              thinkingText = '';
             }
           }
 
@@ -171,6 +240,11 @@ export async function sendMessage(
       onDone(fullText);
     }
   } catch (err: any) {
+    // 用户主动中断不算错误
+    if (err.name === 'AbortError') {
+      onDone(fullText);
+      return;
+    }
     onError(err.message || 'Network error');
   }
 }

@@ -51,8 +51,16 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, t
   };
 
   const handleNewChat = () => {
-    navigate('/');
-    if (onNewChatClick) onNewChatClick();
+    // 如果已经在首页，先触发回调再导航
+    if (location.pathname === '/' || location.pathname === '') {
+      if (onNewChatClick) onNewChatClick();
+      // 添加一个小的延迟确保状态更新
+      setTimeout(() => {
+        navigate('/');
+      }, 0);
+    } else {
+      navigate('/');
+    }
   };
 
   const updateTuner = (key: string, value: number) => {
@@ -64,11 +72,24 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, t
   useEffect(() => {
     setUserUser(getUser());
     fetchChats();
+
+    // 监听标题更新事件
+    const handleTitleUpdate = () => {
+      console.log('[Sidebar] Title update event received, fetching conversations...');
+      fetchChats();
+    };
+
+    window.addEventListener('conversationTitleUpdated', handleTitleUpdate);
+
+    return () => {
+      window.removeEventListener('conversationTitleUpdated', handleTitleUpdate);
+    };
   }, [refreshTrigger]);
 
   const fetchChats = async () => {
     try {
       const data = await getConversations();
+      console.log('[Sidebar] Fetched conversations:', data);
       if (Array.isArray(data)) {
         setChats(data);
       }
