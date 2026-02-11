@@ -113,6 +113,66 @@ export async function deleteMessagesFrom(conversationId: string, messageId: stri
   return res.json();
 }
 
+// 文件上传相关
+export interface UploadResult {
+  fileId: string;
+  fileName: string;
+  fileType: 'image' | 'document' | 'text';
+  mimeType: string;
+  size: number;
+}
+
+export function uploadFile(
+  file: File,
+  onProgress?: (percent: number) => void
+): Promise<UploadResult> {
+  return new Promise((resolve, reject) => {
+    const token = getToken();
+    const xhr = new XMLHttpRequest();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && onProgress) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 401) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        reject(new Error('认证失效'));
+        return;
+      }
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data);
+        } else {
+          reject(new Error(data.error || '上传失败'));
+        }
+      } catch {
+        reject(new Error('上传失败'));
+      }
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('网络错误')));
+    xhr.addEventListener('abort', () => reject(new Error('上传已取消')));
+
+    xhr.open('POST', `${API_BASE}/upload`);
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    xhr.send(formData);
+  });
+}
+
+export function getAttachmentUrl(fileId: string): string {
+  return `${API_BASE}/uploads/${fileId}/raw`;
+}
+
 // 流式对话（核心）
 export async function sendMessage(
   conversationId: string,
@@ -222,8 +282,13 @@ export async function sendMessage(
           }
 
           if (parsed.type === 'message_stop') {
-            onDone(fullText);
-            return;
+            // 如果有文本内容才结束，否则可能是服务端工具中间的 message_stop
+            if (fullText) {
+              onDone(fullText);
+              return;
+            }
+            // 没有文本内容时继续等待后续事件
+            continue;
           }
 
           if (parsed.type === 'error') {

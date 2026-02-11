@@ -3,9 +3,11 @@ import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square 
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
-import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom } from '../api';
+import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, uploadFile } from '../api';
 import MarkdownRenderer from './MarkdownRenderer';
 import ModelSelector from './ModelSelector';
+import FileUploadPreview, { PendingFile } from './FileUploadPreview';
+import MessageAttachments from './MessageAttachments';
 
 // 时间戳格式化
 function formatMessageTime(dateStr: string): string {
@@ -70,6 +72,9 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
   const [editingMessageIdx, setEditingMessageIdx] = useState<number | null>(null);
   const [editingContent, setEditingContent] = useState('');
   const messageContentRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     // If we have a URL param ID, clear any local ID to ensure we sync with source of truth
@@ -181,10 +186,31 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
   };
 
   const handleSend = async () => {
-    if (!inputText.trim() || loading) return;
+    const hasFiles = pendingFiles.some(f => f.status === 'done');
+    if ((!inputText.trim() && !hasFiles) || loading) return;
+    const isUploading = pendingFiles.some(f => f.status === 'uploading');
+    if (isUploading) return;
 
     const userMessageText = inputText;
     setInputText(""); // Clear input
+
+    // 收集已上传的附件
+    const uploadedFiles = pendingFiles.filter(f => f.status === 'done' && f.fileId);
+    const attachmentsPayload = uploadedFiles.length > 0
+      ? uploadedFiles.map(f => ({ fileId: f.fileId! }))
+      : null;
+
+    // 构建乐观 UI 的附件数据
+    const optimisticAttachments = uploadedFiles.map(f => ({
+      id: f.fileId!,
+      file_type: f.fileType || 'text',
+      file_name: f.fileName,
+      mime_type: f.mimeType,
+    }));
+
+    // 清空 pendingFiles 并释放预览 URL
+    pendingFiles.forEach(f => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); });
+    setPendingFiles([]);
 
     // 重置 textarea 高度
     if (inputRef.current) {
@@ -193,7 +219,11 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
     }
 
     // Optimistic UI: Add user message immediately
-    const tempUserMsg = { role: 'user', content: userMessageText, created_at: new Date().toISOString() };
+    const tempUserMsg: any = { role: 'user', content: userMessageText, created_at: new Date().toISOString() };
+    if (optimisticAttachments.length > 0) {
+      tempUserMsg.has_attachments = 1;
+      tempUserMsg.attachments = optimisticAttachments;
+    }
     setMessages(prev => [...prev, tempUserMsg]);
 
     // Force scroll to bottom and track state
@@ -250,7 +280,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
     await sendMessage(
       conversationId!,
       userMessageText,
-      null,
+      attachmentsPayload,
       (delta, full) => {
         setMessages(prev => {
           const newMsgs = [...prev];
@@ -510,6 +540,98 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
     });
   };
 
+  // === 文件上传相关 ===
+  const ACCEPTED_TYPES = 'image/png,image/jpeg,image/jpg,image/gif,image/webp,application/pdf,.docx,.xlsx,.pptx,.odt,.rtf,.epub,.txt,.md,.csv,.json,.xml,.yaml,.yml,.js,.jsx,.ts,.tsx,.py,.java,.cpp,.c,.h,.cs,.go,.rs,.rb,.php,.swift,.kt,.scala,.html,.css,.scss,.less,.sql,.sh,.bash,.vue,.svelte,.lua,.r,.m,.pl,.ex,.exs';
+
+  const handleFilesSelected = (files: FileList | File[]) => {
+    const fileArray = Array.from(files);
+    const maxFiles = 5;
+    const currentCount = pendingFiles.length;
+    const allowed = fileArray.slice(0, maxFiles - currentCount);
+
+    for (const file of allowed) {
+      const id = Math.random().toString(36).slice(2);
+      const isImage = file.type.startsWith('image/');
+      const previewUrl = isImage ? URL.createObjectURL(file) : undefined;
+
+      const pending: PendingFile = {
+        id,
+        file,
+        fileName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        progress: 0,
+        status: 'uploading',
+        previewUrl,
+      };
+
+      setPendingFiles(prev => [...prev, pending]);
+
+      uploadFile(file, (percent) => {
+        setPendingFiles(prev => prev.map(f => f.id === id ? { ...f, progress: percent } : f));
+      }).then((result) => {
+        setPendingFiles(prev => prev.map(f => f.id === id ? {
+          ...f,
+          fileId: result.fileId,
+          fileType: result.fileType,
+          status: 'done' as const,
+          progress: 100,
+        } : f));
+      }).catch((err) => {
+        setPendingFiles(prev => prev.map(f => f.id === id ? {
+          ...f,
+          status: 'error' as const,
+          error: err.message,
+        } : f));
+      });
+    }
+  };
+
+  const handleRemoveFile = (id: string) => {
+    setPendingFiles(prev => {
+      const file = prev.find(f => f.id === id);
+      if (file?.previewUrl) URL.revokeObjectURL(file.previewUrl);
+      return prev.filter(f => f.id !== id);
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      handleFilesSelected(e.dataTransfer.files);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith('image/')) {
+        const file = items[i].getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      handleFilesSelected(imageFiles);
+    }
+  };
+
 
   // --- Render Logic ---
 
@@ -551,10 +673,25 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
 
           {/* 输入框区域 */}
           <div className="w-full relative group">
+            <input
+              type="file"
+              ref={fileInputRef}
+              className="hidden"
+              multiple
+              accept={ACCEPTED_TYPES}
+              onChange={(e) => {
+                if (e.target.files) handleFilesSelected(e.target.files);
+                e.target.value = '';
+              }}
+            />
             <div
-              className="bg-white border border-[#E8E7E3] shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#D1D1D1] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#D1D1D1] transition-all duration-200 flex flex-col"
+              className={`bg-white border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#D1D1D1] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#D1D1D1] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-[#E8E7E3]'}`}
               style={{ borderRadius: `${tunerConfig?.inputRadius || 16}px` }}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
+              <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
               <textarea
                 ref={inputRef}
                 className="w-full px-4 pt-4 pb-2 text-[#111] placeholder:text-[#949494] text-[16px] outline-none font-sans resize-none overflow-hidden"
@@ -568,10 +705,14 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
                   e.target.style.overflowY = e.target.scrollHeight > 300 ? 'auto' : 'hidden';
                 }}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
               />
               <div className="px-4 pb-3 pt-1 flex items-center justify-between">
                 <div>
-                  <button className="p-2 text-[#747474] hover:text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2 text-[#747474] hover:text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors"
+                  >
                     <IconPlus size={20} />
                   </button>
                 </div>
@@ -583,7 +724,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
                   />
                   <button
                     onClick={handleSend}
-                    disabled={!inputText.trim() || loading}
+                    disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || loading || pendingFiles.some(f => f.status === 'uploading')}
                     className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <ArrowUp size={22} strokeWidth={2.5} />
@@ -679,6 +820,12 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
                 ) : (
                   // User Message — 普通模式
                   <div className="flex flex-col items-end">
+                    {/* 附件展示 */}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                      <div className="max-w-[85%] w-fit mb-1">
+                        <MessageAttachments attachments={msg.attachments} />
+                      </div>
+                    )}
                     {/* 消息气泡 */}
                     <div className="max-w-[85%] w-fit relative">
                       <div
@@ -864,9 +1011,13 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
         >
           <div className="w-full relative group">
             <div
-              className="bg-white border border-[#E8E7E3] shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#D1D1D1] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#D1D1D1] transition-all duration-200 flex flex-col"
+              className={`bg-white border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#D1D1D1] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#D1D1D1] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-[#E8E7E3]'}`}
               style={{ borderRadius: `${inputBarRadius}px` }}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
+              <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
               <textarea
                 ref={inputRef}
                 className="w-full px-4 pt-3 pb-1 text-[#111] placeholder:text-[#949494] text-[16px] outline-none font-sans resize-none overflow-hidden bg-transparent"
@@ -886,10 +1037,14 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
                   }
                 }}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
               />
               <div className="px-4 pb-3 pt-1 flex items-center justify-between">
                 <div>
-                  <button className="p-2 text-[#747474] hover:text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-2 text-[#747474] hover:text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors"
+                  >
                     <IconPlus size={20} />
                   </button>
                 </div>
@@ -910,7 +1065,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
                   ) : (
                     <button
                       onClick={handleSend}
-                      disabled={!inputText.trim()}
+                      disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || pendingFiles.some(f => f.status === 'uploading')}
                       className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <ArrowUp size={22} strokeWidth={2.5} />
