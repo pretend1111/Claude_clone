@@ -81,6 +81,25 @@ export function getUser() {
   return userStr ? JSON.parse(userStr) : null;
 }
 
+// 用户资料
+export async function getUserProfile() {
+  const res = await request('/user/profile');
+  return res.json();
+}
+
+export async function updateUserProfile(data: Record<string, any>) {
+  const res = await request('/user/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function getUserUsage() {
+  const res = await request('/user/usage');
+  return res.json();
+}
+
 // 对话相关
 export async function getConversations() {
   const res = await request('/conversations');

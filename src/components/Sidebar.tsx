@@ -14,7 +14,7 @@ import {
 } from './Icons';
 import claudeImg from '../assets/icons/claude.png';
 import { NAV_ITEMS } from '../constants';
-import { ChevronUp } from 'lucide-react';
+import { ChevronUp, Settings, Gem, HelpCircle, LogOut } from 'lucide-react';
 import { getConversations, deleteConversation, getUser, logout } from '../api';
 
 interface SidebarProps {
@@ -22,11 +22,12 @@ interface SidebarProps {
   toggleSidebar: () => void;
   refreshTrigger: number;
   onNewChatClick?: () => void;
+  onOpenSettings?: () => void;
   tunerConfig?: any;
   setTunerConfig?: (config: any) => void;
 }
 
-const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, tunerConfig, setTunerConfig }: SidebarProps) => {
+const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, onOpenSettings, tunerConfig, setTunerConfig }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [chats, setChats] = useState<any[]>([]);
@@ -34,10 +35,13 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, t
   const [menuPosition, setMenuPosition] = useState<{ top: number, left: number } | null>(null);
   const [userUser, setUserUser] = useState<any>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [userMenuPos, setUserMenuPos] = useState<{ bottom: number; left: number } | null>(null);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const userBtnRef = useRef<HTMLButtonElement>(null);
 
   // Map labels to the correct custom icon
   const getIcon = (label: string, size: number) => {
@@ -357,7 +361,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, t
 
         {/* User Profile Footer */}
         <div
-          className="mt-auto border-t border-claude-border flex-shrink-0 overflow-hidden relative transition-all duration-200"
+          className="mt-auto border-t border-claude-border flex-shrink-0 relative transition-all duration-200"
           style={{
             paddingTop: `${tunerConfig?.profilePy || 12}px`,
             paddingBottom: `${tunerConfig?.profilePy || 12}px`,
@@ -366,7 +370,14 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, t
           }}
         >
           <button
-            onClick={() => setShowUserMenu(!showUserMenu)}
+            ref={userBtnRef}
+            onClick={() => {
+              if (!showUserMenu && userBtnRef.current) {
+                const rect = userBtnRef.current.getBoundingClientRect();
+                setUserMenuPos({ bottom: window.innerHeight - rect.top + 4, left: rect.left });
+              }
+              setShowUserMenu(!showUserMenu);
+            }}
             className={`w-full flex items-center gap-2 hover:bg-black/5 rounded-lg transition-all duration-200 overflow-hidden whitespace-nowrap`}
             style={{
               padding: isCollapsed ? '8px 0px 8px 9px' : '8px'
@@ -393,14 +404,49 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, t
           </button>
 
           {/* User Menu Popup */}
-          {showUserMenu && (
-            <div ref={userMenuRef} className="absolute bottom-full left-3 mb-2 w-48 bg-white border border-[#E5E5E5] rounded-xl shadow-lg py-1 z-50">
-              <button
-                onClick={logout}
-                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-              >
-                Log out
-              </button>
+          {showUserMenu && userMenuPos && (
+            <div ref={userMenuRef} className="fixed w-[220px] bg-white border border-[#E5E5E5] rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-[60]"
+              style={{ bottom: `${userMenuPos.bottom}px`, left: `${userMenuPos.left}px` }}
+            >
+              {/* User info header */}
+              <div className="px-4 py-2.5 border-b border-[#E8E7E3]">
+                <div className="text-[13px] font-medium text-[#333]">{userUser?.nickname || 'User'}</div>
+                <div className="text-[12px] text-[#747474] mt-0.5">{userUser?.email || ''}</div>
+              </div>
+              {/* Menu items */}
+              <div className="py-1">
+                <button
+                  onClick={() => { setShowUserMenu(false); onOpenSettings?.(); }}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#393939] hover:bg-[#F5F4F1] transition-colors"
+                >
+                  <Settings size={16} className="text-[#525252]" />
+                  Settings
+                </button>
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#393939] hover:bg-[#F5F4F1] transition-colors"
+                  onClick={() => setShowUserMenu(false)}
+                >
+                  <Gem size={16} className="text-[#525252]" />
+                  Upgrade Plan
+                </button>
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#999] cursor-not-allowed"
+                  disabled
+                >
+                  <HelpCircle size={16} className="text-[#BBB]" />
+                  Get Help
+                </button>
+              </div>
+              <div className="h-[1px] bg-[#E8E7E3] mx-3" />
+              <div className="py-1">
+                <button
+                  onClick={() => { setShowUserMenu(false); setShowLogoutConfirm(true); }}
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#B9382C] hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={16} className="text-[#B9382C]" />
+                  Log out
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -437,6 +483,30 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, t
         )
       }
       {/* Fixed Layout Tuner (Removed) */}
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-[360px] p-6">
+            <h3 className="text-[16px] font-semibold text-[#333] mb-2">确定退出登录？</h3>
+            <p className="text-[14px] text-[#666] mb-6">此操作将清除您的登录状态。</p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="px-4 py-2 text-[13px] text-[#393939] bg-[#F5F4F1] hover:bg-[#ECEAE6] rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => { setShowLogoutConfirm(false); logout(); }}
+                className="px-4 py-2 text-[13px] text-white bg-[#B9382C] hover:bg-[#A02E23] rounded-lg transition-colors"
+              >
+                确认退出
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

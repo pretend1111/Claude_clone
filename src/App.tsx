@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import Auth from './components/Auth';
+import SettingsPage from './components/SettingsPage';
 
 const Layout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -10,6 +11,13 @@ const Layout = () => {
   const [newChatKey, setNewChatKey] = useState(0);
   const [authChecked, setAuthChecked] = useState(false);
   const [authValid, setAuthValid] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  const location = useLocation();
+
+  useEffect(() => {
+    setShowSettings(false);
+  }, [location.pathname]);
 
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
@@ -88,15 +96,20 @@ const Layout = () => {
         toggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         refreshTrigger={refreshTrigger}
         onNewChatClick={handleNewChat}
+        onOpenSettings={() => setShowSettings(true)}
         tunerConfig={tunerConfig}
         setTunerConfig={setTunerConfig}
       />
       <div className="flex-1 flex flex-col h-full min-w-0">
-        <MainContent
-          onNewChat={handleNewChat}
-          resetKey={newChatKey}
-          tunerConfig={tunerConfig}
-        />
+        {showSettings ? (
+          <SettingsPage onClose={() => setShowSettings(false)} />
+        ) : (
+          <MainContent
+            onNewChat={handleNewChat}
+            resetKey={newChatKey}
+            tunerConfig={tunerConfig}
+          />
+        )}
       </div>
     </div>
   );
