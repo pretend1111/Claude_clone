@@ -30,10 +30,18 @@ async function request(path: string, options: RequestInit = {}) {
 }
 
 // 认证相关
-export async function register(email: string, password: string, nickname: string) {
+export async function sendCode(email: string) {
+  const res = await request('/auth/send-code', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+  return res.json();
+}
+
+export async function register(email: string, password: string, nickname: string, code: string) {
   const res = await request('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ email, password, nickname }),
+    body: JSON.stringify({ email, password, nickname, code }),
   });
   return res.json();
 }
@@ -42,6 +50,22 @@ export async function login(email: string, password: string) {
   const res = await request('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  });
+  return res.json();
+}
+
+export async function forgotPassword(email: string) {
+  const res = await request('/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+  return res.json();
+}
+
+export async function resetPassword(email: string, code: string, password: string) {
+  const res = await request('/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, code, password }),
   });
   return res.json();
 }

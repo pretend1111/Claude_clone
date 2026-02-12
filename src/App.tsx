@@ -8,6 +8,39 @@ const Layout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [newChatKey, setNewChatKey] = useState(0);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authValid, setAuthValid] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setAuthChecked(true);
+      setAuthValid(false);
+      return;
+    }
+    fetch('http://localhost:3001/api/user/profile', {
+      headers: { 'Authorization': `Bearer ${token}` },
+    }).then(res => {
+      if (res.ok) {
+        res.json().then(data => {
+          if (data.newToken) {
+            localStorage.setItem('auth_token', data.newToken);
+          }
+          setAuthValid(true);
+          setAuthChecked(true);
+        });
+      } else {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+        setAuthValid(false);
+        setAuthChecked(true);
+      }
+    }).catch(() => {
+      // 网络错误时信任本地 token，避免离线时踢出
+      setAuthValid(true);
+      setAuthChecked(true);
+    });
+  }, []);
 
   const handleNewChat = () => {
     setNewChatKey(prev => prev + 1);
@@ -41,8 +74,10 @@ const Layout = () => {
   });
 
   // Guard: check if logged in
-  const token = localStorage.getItem('auth_token');
-  if (!token) {
+  if (!authChecked) {
+    return null; // 验证中，不渲染
+  }
+  if (!authValid) {
     return <Navigate to="/login" replace />;
   }
 
