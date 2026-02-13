@@ -3,7 +3,7 @@ import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square 
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
-import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, uploadFile } from '../api';
+import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, uploadFile, deleteAttachment } from '../api';
 import MarkdownRenderer from './MarkdownRenderer';
 import ModelSelector from './ModelSelector';
 import FileUploadPreview, { PendingFile } from './FileUploadPreview';
@@ -591,6 +591,10 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
     setPendingFiles(prev => {
       const file = prev.find(f => f.id === id);
       if (file?.previewUrl) URL.revokeObjectURL(file.previewUrl);
+      // 已上传的文件调后端删除，释放存储空间
+      if (file?.fileId) {
+        deleteAttachment(file.fileId).catch(() => {});
+      }
       return prev.filter(f => f.id !== id);
     });
   };

@@ -245,6 +245,10 @@ export function uploadFile(
   });
 }
 
+export async function deleteAttachment(fileId: string): Promise<void> {
+  await request(`/uploads/${fileId}`, { method: 'DELETE' });
+}
+
 export function getAttachmentUrl(fileId: string): string {
   return `${API_BASE}/uploads/${fileId}/raw`;
 }
