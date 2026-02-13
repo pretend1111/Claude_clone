@@ -100,6 +100,39 @@ export async function getUserUsage() {
   return res.json();
 }
 
+// 套餐与支付
+export async function getPlans() {
+  const res = await request('/payment/plans');
+  return res.json();
+}
+
+export async function createPaymentOrder(planId: number, paymentMethod: string) {
+  const res = await request('/payment/create', {
+    method: 'POST',
+    body: JSON.stringify({ plan_id: planId, payment_method: paymentMethod }),
+  });
+  return res.json();
+}
+
+export async function getPaymentStatus(orderId: string) {
+  const res = await request(`/payment/status/${orderId}`);
+  return res.json();
+}
+
+export async function mockPay(orderId: string) {
+  const res = await request(`/payment/mock-pay/${orderId}`, { method: 'POST' });
+  return res.json();
+}
+
+// 兑换码
+export async function redeemCode(code: string) {
+  const res = await request('/redemption/redeem', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+  return res.json();
+}
+
 // 对话相关
 export async function getConversations() {
   const res = await request('/conversations');

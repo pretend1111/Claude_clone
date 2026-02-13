@@ -23,11 +23,12 @@ interface SidebarProps {
   refreshTrigger: number;
   onNewChatClick?: () => void;
   onOpenSettings?: () => void;
+  onOpenUpgrade?: () => void;
   tunerConfig?: any;
   setTunerConfig?: (config: any) => void;
 }
 
-const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, onOpenSettings, tunerConfig, setTunerConfig }: SidebarProps) => {
+const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, onOpenSettings, onOpenUpgrade, tunerConfig, setTunerConfig }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [chats, setChats] = useState<any[]>([]);
@@ -119,6 +120,10 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      // 忽略用户按钮本身的点击（由按钮 onClick 处理）
+      if (userBtnRef.current && userBtnRef.current.contains(event.target as Node)) {
+        return;
+      }
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setActiveMenuIndex(null);
       }
@@ -134,7 +139,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
     };
 
     if (activeMenuIndex !== null || showUserMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('click', handleClickOutside);
       // Attach scroll listener to the sidebar scroll container
       const scrollEl = scrollRef.current;
       scrollEl?.addEventListener('scroll', handleScroll);
@@ -142,7 +147,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('click', handleClickOutside);
       const scrollEl = scrollRef.current;
       scrollEl?.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleScroll);
@@ -424,7 +429,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                 </button>
                 <button
                   className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#393939] hover:bg-[#F5F4F1] transition-colors"
-                  onClick={() => setShowUserMenu(false)}
+                  onClick={() => { setShowUserMenu(false); onOpenUpgrade?.(); }}
                 >
                   <Gem size={16} className="text-[#525252]" />
                   Upgrade Plan

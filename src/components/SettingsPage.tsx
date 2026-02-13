@@ -311,6 +311,8 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
     const storageQuota = Number(usage.storage_quota) || 0;
     const storageUsed = Number(usage.storage_used) || 0;
     const storagePercent = Number(usage.storage_percent) || 0;
+    const plan = usage.plan;
+    const messages = usage.messages;
 
     const formatTokens = (n: number) => {
       if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
@@ -325,22 +327,33 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
       return `${n} B`;
     };
 
+    const daysRemaining = plan?.expires_at
+      ? Math.max(0, Math.ceil((new Date(plan.expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+      : 0;
+
     return (
       <div className="space-y-8 animate-fade-in">
         <section>
           <h3 className="text-[16px] font-semibold text-[#222] mb-5">Usage</h3>
 
           <div className="space-y-6">
+            {/* Plan info */}
             <div className="p-4 bg-white border border-[#E0DFDC] rounded-xl shadow-sm">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-[15px] font-semibold text-[#222]">
-                  {profile?.plan === 'free' ? 'Free Plan' : profile?.plan || 'Free Plan'}
+                  {plan ? plan.name : 'Free Plan'}
                 </span>
-                <span className="px-2 py-0.5 bg-[#4B9C68]/10 text-[#4B9C68] text-[11px] font-medium rounded-full">
-                  Active
+                <span className={`px-2 py-0.5 text-[11px] font-medium rounded-full ${
+                  plan ? 'bg-[#4B9C68]/10 text-[#4B9C68]' : 'bg-[#F5F4F1] text-[#999]'
+                }`}>
+                  {plan ? 'Active' : 'Free'}
                 </span>
               </div>
-              <p className="text-[13px] text-[#5E5E5E]">You are currently on the free tier.</p>
+              {plan ? (
+                <p className="text-[13px] text-[#5E5E5E]">到期时间：{plan.expires_at?.slice(0, 10)}（剩余 {daysRemaining} 天）</p>
+              ) : (
+                <p className="text-[13px] text-[#5E5E5E]">您当前没有活跃套餐</p>
+              )}
             </div>
 
             {/* Token Usage */}
@@ -388,6 +401,20 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
                 <span className="text-[12px] text-[#747474]">{formatBytes(storageQuota - storageUsed)} remaining</span>
               </div>
             </div>
+
+            {/* Message Stats */}
+            {messages && (
+              <div className="flex gap-4">
+                <div className="flex-1 p-3 bg-white border border-[#E0DFDC] rounded-xl text-center">
+                  <div className="text-[20px] font-semibold text-[#222]">{messages.today}</div>
+                  <div className="text-[12px] text-[#747474]">今日消息</div>
+                </div>
+                <div className="flex-1 p-3 bg-white border border-[#E0DFDC] rounded-xl text-center">
+                  <div className="text-[20px] font-semibold text-[#222]">{messages.month}</div>
+                  <div className="text-[12px] text-[#747474]">本月消息</div>
+                </div>
+              </div>
+            )}
 
           </div>
         </section>

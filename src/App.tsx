@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import MainContent from './components/MainContent';
 import Auth from './components/Auth';
 import SettingsPage from './components/SettingsPage';
+import UpgradePlan from './components/UpgradePlan';
 
 const Layout = () => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -12,11 +13,13 @@ const Layout = () => {
   const [authChecked, setAuthChecked] = useState(false);
   const [authValid, setAuthValid] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showUpgrade, setShowUpgrade] = useState(false);
 
   const location = useLocation();
 
   useEffect(() => {
     setShowSettings(false);
+    setShowUpgrade(false);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -96,13 +99,16 @@ const Layout = () => {
         toggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         refreshTrigger={refreshTrigger}
         onNewChatClick={handleNewChat}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => { setShowSettings(true); setShowUpgrade(false); }}
+        onOpenUpgrade={() => { setShowUpgrade(true); setShowSettings(false); }}
         tunerConfig={tunerConfig}
         setTunerConfig={setTunerConfig}
       />
       <div className="flex-1 flex flex-col h-full min-w-0">
         {showSettings ? (
           <SettingsPage onClose={() => setShowSettings(false)} />
+        ) : showUpgrade ? (
+          <UpgradePlan onClose={() => setShowUpgrade(false)} />
         ) : (
           <MainContent
             onNewChat={handleNewChat}
