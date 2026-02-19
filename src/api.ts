@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = '/api';
 
 // 获取存储的 token
 function getToken() {
@@ -100,6 +100,37 @@ export async function getUserUsage() {
   return res.json();
 }
 
+export async function getSessions() {
+  const res = await request('/user/sessions');
+  return res.json();
+}
+
+export async function deleteSession(id: string) {
+  const res = await request(`/user/sessions/${id}`, { method: 'DELETE' });
+  return res.json();
+}
+
+export async function logoutOtherSessions() {
+  const res = await request('/user/sessions/logout-others', { method: 'POST' });
+  return res.json();
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  const res = await request('/user/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  return res.json();
+}
+
+export async function deleteAccount(password: string) {
+  const res = await request('/user/delete-account', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
+  return res.json();
+}
+
 // 套餐与支付
 export async function getPlans() {
   const res = await request('/payment/plans');
@@ -116,11 +147,6 @@ export async function createPaymentOrder(planId: number, paymentMethod: string) 
 
 export async function getPaymentStatus(orderId: string) {
   const res = await request(`/payment/status/${orderId}`);
-  return res.json();
-}
-
-export async function mockPay(orderId: string) {
-  const res = await request(`/payment/mock-pay/${orderId}`, { method: 'POST' });
   return res.json();
 }
 
@@ -264,6 +290,7 @@ export async function sendMessage(
   onThinking?: (thinking: string, full: string) => void,
   onSystem?: (event: string, message: string, data: any) => void,
   onCitations?: (citations: Array<{ url: string; title: string; cited_text?: string }>) => void,
+  onDocument?: (document: { id: string; title: string; filename: string; url: string; content?: string; format?: 'markdown' | 'docx' | 'pptx'; slides?: Array<{ title: string; content: string; notes?: string }> }) => void,
   signal?: AbortSignal
 ) {
   const token = getToken();
@@ -339,11 +366,38 @@ export async function sendMessage(
             continue;
           }
 
+          // 处理文档创建事件
+          if (parsed.type === 'document_created') {
+            if (onDocument && parsed.document) {
+              onDocument(parsed.document);
+            }
+            continue;
+          }
+
           // 处理 thinking 内容
           if (parsed.type === 'content_block_delta' && parsed.delta) {
             if (parsed.delta.type === 'text_delta' && parsed.delta.text) {
-              fullText += parsed.delta.text;
-              onDelta(parsed.delta.text, fullText);
+              let textChunk = parsed.delta.text;
+              // 处理中转 API 将 <thinking> 标签嵌入 text 的情况
+              if (textChunk.includes('<thinking>') || textChunk.includes('</thinking>')) {
+                const thinkRegex = /<thinking>([\s\S]*?)<\/thinking>/g;
+                let match;
+                let cleaned = textChunk;
+                while ((match = thinkRegex.exec(textChunk)) !== null) {
+                  if (onThinking) {
+                    thinkingText += match[1];
+                    onThinking(match[1], thinkingText);
+                  }
+                }
+                cleaned = textChunk.replace(/<thinking>[\s\S]*?<\/thinking>\s*/g, '');
+                if (cleaned) {
+                  fullText += cleaned;
+                  onDelta(cleaned, fullText);
+                }
+              } else {
+                fullText += textChunk;
+                onDelta(textChunk, fullText);
+              }
             }
             if (parsed.delta.type === 'thinking_delta' && parsed.delta.thinking) {
               thinkingText += parsed.delta.thinking;
@@ -372,7 +426,8 @@ export async function sendMessage(
           }
 
           if (parsed.type === 'error') {
-            onError(parsed.error || '未知错误');
+            const detail = parsed.detail ? `\n${parsed.detail}` : '';
+            onError((parsed.error || '未知错误') + detail);
             return;
           }
         } catch (e) {

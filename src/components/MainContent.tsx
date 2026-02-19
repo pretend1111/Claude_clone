@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square, Paperclip, ListCollapse } from 'lucide-react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
-import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, uploadFile, deleteAttachment } from '../api';
+import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, uploadFile, deleteAttachment, compactConversation, getUserUsage } from '../api';
 import MarkdownRenderer from './MarkdownRenderer';
 import ModelSelector from './ModelSelector';
 import FileUploadPreview, { PendingFile } from './FileUploadPreview';
 import MessageAttachments from './MessageAttachments';
+import DocumentCard, { DocumentInfo } from './DocumentCard';
+import { copyToClipboard } from '../utils/clipboard';
 
 // 时间戳格式化
 function formatMessageTime(dateStr: string): string {
@@ -31,13 +33,230 @@ interface MainContentProps {
   onNewChat: () => void; // Callback to tell sidebar to refresh
   resetKey?: number;
   tunerConfig?: any;
+  onOpenDocument?: (doc: DocumentInfo) => void;
+  onArtifactsUpdate?: (docs: DocumentInfo[]) => void;
+  onOpenArtifacts?: () => void;
+  onTitleChange?: (title: string) => void;
+  onChatModeChange?: (isChat: boolean) => void;
 }
 
-const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => {
+// 草稿存储：在切换对话、打开设置页面时保留输入内容和附件
+const draftsStore = new Map<string, { text: string; files: PendingFile[]; height: number }>();
+
+/** Memoized message list — skips re-render when only inputText changes */
+interface MessageListProps {
+  messages: any[];
+  loading: boolean;
+  expandedMessages: Set<number>;
+  editingMessageIdx: number | null;
+  editingContent: string;
+  copiedMessageIdx: number | null;
+  compactStatus: { state: string; message?: string };
+  onSetEditingContent: (v: string) => void;
+  onEditCancel: () => void;
+  onEditSave: () => void;
+  onToggleExpand: (idx: number) => void;
+  onResend: (content: string, idx: number) => void;
+  onEdit: (content: string, idx: number) => void;
+  onCopy: (content: string, idx: number) => void;
+  onOpenDocument?: (doc: DocumentInfo) => void;
+  onSetMessages: React.Dispatch<React.SetStateAction<any[]>>;
+  messageContentRefs: React.MutableRefObject<Map<number, HTMLDivElement>>;
+}
+
+const MessageList = React.memo<MessageListProps>(({
+  messages, loading, expandedMessages, editingMessageIdx, editingContent,
+  copiedMessageIdx, compactStatus, onSetEditingContent, onEditCancel, onEditSave,
+  onToggleExpand, onResend, onEdit, onCopy, onOpenDocument, onSetMessages,
+  messageContentRefs,
+}) => {
+  return (
+    <>
+      {messages.map((msg: any, idx: number) => (
+        <div key={idx} className="mb-6 group">
+          {msg.is_summary === 1 && (
+            <div className="flex items-center gap-3 mb-5 mt-2">
+              <div className="flex-1 h-px bg-claude-border" />
+              <span className="text-[12px] text-claude-textSecondary whitespace-nowrap">Context compacted above this point</span>
+              <div className="flex-1 h-px bg-claude-border" />
+            </div>
+          )}
+          {msg.role === 'user' ? (
+            editingMessageIdx === idx ? (
+              <div className="w-full">
+                <div className="bg-claude-btnHover rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed font-sans">
+                  <textarea
+                    className="w-full bg-transparent text-claude-text outline-none resize-none font-sans text-[16px] leading-relaxed"
+                    value={editingContent}
+                    onChange={(e) => {
+                      onSetEditingContent(e.target.value);
+                      e.target.style.height = 'auto';
+                      e.target.style.height = e.target.scrollHeight + 'px';
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Escape') onEditCancel(); }}
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = 'auto';
+                        el.style.height = el.scrollHeight + 'px';
+                        el.focus();
+                      }
+                    }}
+                    style={{ minHeight: '60px' }}
+                  />
+                </div>
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-[13px] text-claude-textSecondary">
+                    Submitting will replace this response and all following messages
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button onClick={onEditCancel} className="px-4 py-1.5 text-[13px] font-medium text-claude-text bg-claude-btnHover hover:bg-claude-hover rounded-lg transition-colors">Cancel</button>
+                    <button onClick={onEditSave} disabled={!editingContent.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#D97757] hover:bg-[#c4694a] rounded-lg transition-colors disabled:opacity-40">Send</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-end">
+                {msg.attachments && msg.attachments.length > 0 && (
+                  <div className="max-w-[85%] w-fit mb-1">
+                    <MessageAttachments attachments={msg.attachments} />
+                  </div>
+                )}
+                <div className="max-w-[85%] w-fit relative">
+                  <div
+                    className="bg-claude-btnHover text-claude-text px-5 py-2.5 text-[16px] leading-relaxed font-sans whitespace-pre-wrap break-words relative overflow-hidden"
+                    style={{
+                      maxHeight: expandedMessages.has(idx) ? 'none' : '300px',
+                      borderRadius: ((() => {
+                        const el = messageContentRefs.current.get(idx);
+                        const isOverflow = el && el.scrollHeight > 300;
+                        return isOverflow;
+                      })()) ? '16px 16px 0 0' : '16px',
+                    }}
+                    ref={(el) => { if (el) messageContentRefs.current.set(idx, el); }}
+                  >
+                    {msg.content}
+                    {!expandedMessages.has(idx) && (() => {
+                      const el = messageContentRefs.current.get(idx);
+                      return el && el.scrollHeight > 300;
+                    })() && (
+                        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-claude-btnHover to-transparent pointer-events-none" />
+                      )}
+                  </div>
+                  {(() => {
+                    const el = messageContentRefs.current.get(idx);
+                    const isOverflow = el && el.scrollHeight > 300;
+                    if (!isOverflow) return null;
+                    return (
+                      <div className="bg-claude-btnHover rounded-b-2xl px-5 pb-3 pt-1 -mt-[1px] relative" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
+                        <button onClick={() => onToggleExpand(idx)} className="text-[13px] text-claude-textSecondary hover:text-claude-text transition-colors">
+                          {expandedMessages.has(idx) ? 'Show less' : 'Show more'}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5 pr-1">
+                  {msg.created_at && (
+                    <span className="text-[12px] text-claude-textSecondary mr-1">{formatMessageTime(msg.created_at)}</span>
+                  )}
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => onResend(msg.content, idx)} className="p-1 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded transition-colors" title="重新发送"><RotateCcw size={14} /></button>
+                    <button onClick={() => onEdit(msg.content, idx)} className="p-1 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded transition-colors" title="编辑"><Pencil size={14} /></button>
+                    <button onClick={() => onCopy(msg.content, idx)} className="p-1 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded transition-colors" title="复制">
+                      {copiedMessageIdx === idx ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="px-1 text-claude-text text-[16px] leading-relaxed font-sans mt-2">
+              {msg.thinking && (
+                <div className="mb-3">
+                  {msg.isThinking ? (
+                    <div className="flex items-center gap-1.5 select-none">
+                      <ClaudeLogo autoAnimate style={{ width: '28px', height: '28px', display: 'inline-block', flexShrink: 0 }} />
+                      <span className="text-[13px] font-medium text-claude-textSecondary truncate">
+                        {(() => {
+                          const text = (msg.thinking || '').trim();
+                          const lines = text.split('\n').filter((l: string) => l.trim());
+                          const last = lines[lines.length - 1] || '';
+                          const summary = last.length > 40 ? last.slice(0, 40) + '...' : last;
+                          return summary || 'Thinking...';
+                        })()}
+                      </span>
+                    </div>
+                  ) : (
+                    <div>
+                      <div
+                        className="flex items-center gap-1.5 cursor-pointer select-none group/think"
+                        onClick={() => {
+                          onSetMessages(prev => {
+                            const newMsgs = [...prev];
+                            newMsgs[idx].isThinkingExpanded = !newMsgs[idx].isThinkingExpanded;
+                            return newMsgs;
+                          });
+                        }}
+                      >
+                        <ChevronDown size={14} className={`text-claude-textSecondary transform transition-transform flex-shrink-0 ${msg.isThinkingExpanded ? '' : '-rotate-90'}`} />
+                        <span className="text-[13px] font-medium text-claude-textSecondary group-hover/think:text-claude-text transition-colors">Thinking</span>
+                      </div>
+                      {msg.isThinkingExpanded && (
+                        <div className="mt-2 ml-5 pl-3 border-l-2 border-claude-border text-claude-textSecondary text-[14px] leading-relaxed whitespace-pre-wrap">{msg.thinking}</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {msg.searchStatus && !msg.content && (
+                <div className="flex items-center gap-2 text-[13px] text-claude-textSecondary mb-2">
+                  <span className="inline-block w-3 h-3 border-2 border-[#D97757] border-t-transparent rounded-full animate-spin"></span>
+                  {msg.searchStatus}
+                </div>
+              )}
+              <MarkdownRenderer content={msg.content} citations={msg.citations} />
+              {msg.document && (
+                <div className="mt-2 mb-1">
+                  <DocumentCard document={msg.document} onOpen={(doc) => onOpenDocument?.(doc)} />
+                </div>
+              )}
+              {loading && idx === messages.length - 1 && !msg.content && !msg.thinking && !msg.searchStatus && (
+                <span className="inline-block ml-1 align-middle" style={{ verticalAlign: 'middle' }}>
+                  <ClaudeLogo breathe style={{ width: '40px', height: '40px', display: 'inline-block' }} />
+                </span>
+              )}
+              {loading && idx === messages.length - 1 && (msg.content || msg.searchStatus) && (
+                <span className="inline-block ml-1 align-middle" style={{ verticalAlign: 'middle' }}>
+                  <ClaudeLogo autoAnimate style={{ width: '40px', height: '40px', display: 'inline-block' }} />
+                </span>
+              )}
+              {!loading && idx === messages.length - 1 && msg.content && (
+                <span className="inline-flex items-center gap-2 ml-0.5 mt-3">
+                  <ClaudeLogo autoAnimate={compactStatus.state === 'compacting'} style={{ width: '40px', height: '40px', display: 'inline-block' }} />
+                  {compactStatus.state === 'compacting' && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-48 h-1 bg-[#E5E5E5] rounded-full overflow-hidden">
+                        <div className="h-full bg-[#D97757] rounded-full animate-[compactProgress_2s_ease-in-out_infinite]" />
+                      </div>
+                    </div>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </>
+  );
+});
+
+const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtifactsUpdate, onOpenArtifacts, onTitleChange, onChatModeChange }: MainContentProps) => {
   const { id } = useParams(); // Get conversation ID from URL
   const location = useLocation();
   const [localId, setLocalId] = useState<string | null>(null);
   const [showEntranceAnimation, setShowEntranceAnimation] = useState(false);
+
+
 
   // Use localId if we just created a chat, effectively overriding the lack of URL param until next true navigation
   const activeId = id || localId || null;
@@ -46,17 +265,59 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
   const [inputText, setInputText] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Notify parent about artifacts
+  useEffect(() => {
+    if (onArtifactsUpdate) {
+      const docs = messages
+        .filter((m: any) => m.document)
+        .map((m: any) => m.document as DocumentInfo);
+      onArtifactsUpdate(docs);
+    }
+  }, [messages, onArtifactsUpdate]);
+
+  // Notify parent about Chat Mode and Title
+  useEffect(() => {
+    const isChat = !!(activeId || messages.length > 0);
+    onChatModeChange?.(isChat);
+  }, [activeId, messages.length, onChatModeChange]);
+
+
+
+  // Model state defaults from user settings
+  const getDefaultModel = () => localStorage.getItem('default_model') || 'claude-opus-4-6-thinking';
+  const [currentModelString, setCurrentModelString] = useState(getDefaultModel);
+  const [conversationTitle, setConversationTitle] = useState("");
+
+  useEffect(() => {
+    onTitleChange?.(conversationTitle);
+  }, [conversationTitle, onTitleChange]);
+
   const [user, setUser] = useState<any>(null);
 
-  // Model state defaults to Opus 4.6 Thinking
-  const [currentModelString, setCurrentModelString] = useState('claude-opus-4-6-thinking');
-  const [conversationTitle, setConversationTitle] = useState("");
+  // Welcome greeting — randomized per new chat, time-aware
+  const welcomeGreeting = useMemo(() => {
+    const hour = new Date().getHours();
+    const name = user?.nickname || 'there';
+    const timeGreetings = hour < 6
+      ? [`Night owl mode, ${name}`, `Burning the midnight oil, ${name}?`, `Still up, ${name}?`]
+      : hour < 12
+        ? [`Good morning, ${name}`, `Morning, ${name}`, `Rise and shine, ${name}`]
+        : hour < 18
+          ? [`Good afternoon, ${name}`, `Hey there, ${name}`, `What's on your mind, ${name}?`]
+          : [`Good evening, ${name}`, `Evening, ${name}`, `Winding down, ${name}?`];
+    const general = [`What can I help with?`, `How can I help you today?`, `Let's get to work, ${name}`, `Ready when you are, ${name}`];
+    const pool = [...timeGreetings, ...general];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }, [resetKey, user?.nickname]);
 
   // 输入栏参数
   const inputBarWidth = 768;
   const inputBarMinHeight = 32;
   const inputBarRadius = 22;
   const inputBarBottom = 26;
+  const inputBarBaseHeight = inputBarMinHeight + 16; // border-box: content + padding (pt-4=16px + pb-0=0px)
+  const textareaHeightVal = useRef(inputBarBaseHeight);
 
   const isCreatingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -75,6 +336,31 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const [compactStatus, setCompactStatus] = useState<{ state: 'idle' | 'compacting' | 'done' | 'error'; message?: string }>({ state: 'idle' });
+  const [hasSubscription, setHasSubscription] = useState<boolean | null>(null); // null = loading
+
+  // 草稿持久化 refs（跟踪最新值，供 effect cleanup 读取）
+  const inputTextRef = useRef(inputText);
+  inputTextRef.current = inputText;
+  const pendingFilesRef = useRef(pendingFiles);
+  pendingFilesRef.current = pendingFiles;
+  const textareaHeightRef = useRef(textareaHeightVal.current);
+  textareaHeightRef.current = textareaHeightVal.current;
+
+  // textarea 高度计算改为在 onChange 中直接操作 DOM（见 adjustTextareaHeight）
+  const adjustTextareaHeight = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = `${inputBarBaseHeight}px`;
+    const sh = el.scrollHeight;
+    const newH = sh > inputBarBaseHeight ? Math.min(sh, 316) : inputBarBaseHeight;
+    el.style.height = `${newH}px`;
+    el.style.overflowY = newH >= 316 ? 'auto' : 'hidden';
+    textareaHeightVal.current = newH;
+  }, [inputBarBaseHeight]);
 
   useEffect(() => {
     // If we have a URL param ID, clear any local ID to ensure we sync with source of truth
@@ -94,24 +380,64 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
     return () => observer.disconnect();
   }, [messages]);
 
+  // 点击外部关闭加号菜单
+  useEffect(() => {
+    if (!showPlusMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node) &&
+        plusBtnRef.current && !plusBtnRef.current.contains(e.target as Node)) {
+        setShowPlusMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showPlusMenu]);
+
   // Reset when resetKey changes (New Chat clicked)
-  // Only reset if we're not already on a clean state (no activeId)
   useEffect(() => {
     if (resetKey && resetKey !== lastResetKeyRef.current) {
       lastResetKeyRef.current = resetKey;
-      // Only clear if we're NOT on a conversation page
-      if (!activeId) {
-        setLocalId(null);
-        setMessages([]);
-        setInputText("");
-        setCurrentModelString('claude-opus-4-6-thinking');
-        // 觓发入场动画
-        setShowEntranceAnimation(true);
-        setTimeout(() => setShowEntranceAnimation(false), 800);
-        isAtBottomRef.current = true;
-      }
+      setLocalId(null);
+      setMessages([]);
+      setCurrentModelString(getDefaultModel());
+      setConversationTitle("");
+      // 触发入场动画
+      setShowEntranceAnimation(true);
+      setTimeout(() => setShowEntranceAnimation(false), 800);
+      isAtBottomRef.current = true;
     }
-  }, [resetKey, activeId]);
+  }, [resetKey]);
+
+  // 草稿持久化：切换对话 / 打开设置页面时保存，切回时恢复
+  const draftKey = activeId || '__new__';
+  useEffect(() => {
+    const saved = draftsStore.get(draftKey);
+    if (saved) {
+      setInputText(saved.text);
+      setPendingFiles(saved.files);
+      textareaHeightVal.current = saved.height;
+      // Apply saved height to DOM
+      if (inputRef.current) {
+        inputRef.current.style.height = `${saved.height}px`;
+        inputRef.current.style.overflowY = saved.height >= 316 ? 'auto' : 'hidden';
+      }
+      draftsStore.delete(draftKey);
+    } else {
+      setInputText('');
+      setPendingFiles([]);
+      textareaHeightVal.current = inputBarBaseHeight;
+    }
+    return () => {
+      const text = inputTextRef.current;
+      const files = pendingFilesRef.current;
+      const height = textareaHeightRef.current;
+      if (text.trim() || files.length > 0) {
+        draftsStore.set(draftKey, { text, files, height });
+      } else {
+        draftsStore.delete(draftKey);
+      }
+    };
+  }, [draftKey]);
 
   // 路由变化时也触发入场动画
   useEffect(() => {
@@ -123,13 +449,19 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
 
   useEffect(() => {
     setUser(getUser());
+    // Check subscription status
+    getUserUsage().then(usage => {
+      const hasSub = !!(usage.plan && usage.plan.status === 'active');
+      const hasQuota = usage.token_quota > 0 && usage.token_remaining > 0;
+      setHasSubscription(hasSub || hasQuota);
+    }).catch(() => setHasSubscription(false));
     // If we are currently creating/sending (optimistic), don't fetch/clear state yet
     if (activeId && !isCreatingRef.current) {
       loadConversation(activeId);
     } else if (!activeId) {
       setMessages([]);
       // Default model for new chat
-      setCurrentModelString('claude-opus-4-6-thinking');
+      setCurrentModelString(getDefaultModel());
     }
     // New conversation -> force scroll to bottom
     if (activeId) isAtBottomRef.current = true;
@@ -153,7 +485,10 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    }
   };
 
   const loadConversation = async (conversationId: string) => {
@@ -211,10 +546,12 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
     // 清空 pendingFiles 并释放预览 URL
     pendingFiles.forEach(f => { if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); });
     setPendingFiles([]);
+    draftsStore.delete(activeId || '__new__');
 
     // 重置 textarea 高度
+    textareaHeightVal.current = inputBarBaseHeight;
     if (inputRef.current) {
-      inputRef.current.style.height = `${inputBarMinHeight}px`;
+      inputRef.current.style.height = `${inputBarBaseHeight}px`;
       inputRef.current.style.overflowY = 'hidden';
     }
 
@@ -378,12 +715,40 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
           return newMsgs;
         });
       },
+      (doc) => {
+        // Handle document_created — store document on the assistant message
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          const lastIdx = newMsgs.length - 1;
+          if (newMsgs[lastIdx].role === 'assistant') {
+            newMsgs[lastIdx] = { ...newMsgs[lastIdx], document: doc };
+          }
+          return newMsgs;
+        });
+      },
       controller.signal
     );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+
+    const sendKey = localStorage.getItem('sendKey') || 'enter';
+    // Normalize format (settings uses underscore, old might use plus)
+    const sk = sendKey.replace('+', '_').toLowerCase();
+
+    let shouldSend = false;
+    if (sk === 'enter') {
+      if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) shouldSend = true;
+    } else if (sk === 'ctrl_enter') {
+      if (e.ctrlKey) shouldSend = true;
+    } else if (sk === 'cmd_enter') {
+      if (e.metaKey) shouldSend = true;
+    } else if (sk === 'alt_enter') {
+      if (e.altKey) shouldSend = true;
+    }
+
+    if (shouldSend) {
       e.preventDefault();
       handleSend();
     }
@@ -400,10 +765,14 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
   };
 
   // 复制消息内容
+  // 复制消息内容
   const handleCopyMessage = (content: string, idx: number) => {
-    navigator.clipboard.writeText(content);
-    setCopiedMessageIdx(idx);
-    setTimeout(() => setCopiedMessageIdx(null), 2000);
+    copyToClipboard(content).then((success) => {
+      if (success) {
+        setCopiedMessageIdx(idx);
+        setTimeout(() => setCopiedMessageIdx(null), 2000);
+      }
+    });
   };
 
   // 重新发送消息
@@ -482,6 +851,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
       },
       undefined,
       undefined,
+      undefined,
       controller.signal
     );
   };
@@ -510,8 +880,12 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
     setEditingMessageIdx(null);
     setEditingContent('');
 
-    // 删除当前消息及其后续消息（前端）
-    setMessages(prev => prev.slice(0, idx));
+    // 删除当前消息及其后续消息（前端），同时加入新的用户消息和 assistant 占位
+    setMessages(prev => [
+      ...prev.slice(0, idx),
+      { role: 'user', content: newContent, created_at: new Date().toISOString() },
+      { role: 'assistant', content: '' },
+    ]);
 
     // 删除后端消息
     if (activeId && msg.id) {
@@ -522,9 +896,69 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
       }
     }
 
-    // 将新内容填入输入框，让用户按 Enter 发送
-    setInputText(newContent);
-    inputRef.current?.focus();
+    // 直接发送新内容
+    isAtBottomRef.current = true;
+    setTimeout(scrollToBottom, 50);
+
+    const conversationId = activeId;
+    if (!conversationId) return;
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setLoading(true);
+    await sendMessage(
+      conversationId,
+      newContent,
+      null,
+      (delta, full) => {
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          const lastMsg = newMsgs[newMsgs.length - 1];
+          if (lastMsg.role === 'assistant') {
+            lastMsg.content = full;
+            lastMsg.isThinking = false;
+          }
+          return newMsgs;
+        });
+      },
+      (full) => {
+        setLoading(false);
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          const lastMsg = newMsgs[newMsgs.length - 1];
+          if (lastMsg.role === 'assistant') {
+            lastMsg.content = full;
+            lastMsg.isThinking = false;
+          }
+          return newMsgs;
+        });
+      },
+      (err) => {
+        setLoading(false);
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          if (newMsgs[newMsgs.length - 1].role === 'assistant') {
+            newMsgs[newMsgs.length - 1].content = "Error: " + err;
+          }
+          return newMsgs;
+        });
+      },
+      (thinkingDelta, thinkingFull) => {
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          const lastMsg = newMsgs[newMsgs.length - 1];
+          if (lastMsg.role === 'assistant') {
+            lastMsg.thinking = thinkingFull;
+            lastMsg.isThinking = true;
+          }
+          return newMsgs;
+        });
+      },
+      undefined,
+      undefined,
+      undefined,
+      controller.signal
+    );
   };
 
   // 切换消息展开/折叠
@@ -545,7 +979,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
 
   const handleFilesSelected = (files: FileList | File[]) => {
     const fileArray = Array.from(files);
-    const maxFiles = 5;
+    const maxFiles = 20;
     const currentCount = pendingFiles.length;
     const allowed = fileArray.slice(0, maxFiles - currentCount);
 
@@ -642,13 +1076,8 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
   // MODE 1: Landing Page (No ID)
   if (!activeId && messages.length === 0) {
     return (
-      <div className={`flex-1 bg-claude-bg h-screen flex flex-col relative overflow-hidden text-[#393939] ${showEntranceAnimation ? 'animate-slide-in' : ''}`}>
-        {/* Top Right Icon */}
-        <div className="absolute top-4 right-5 z-10">
-          <div className="w-8 h-8 rounded-full bg-[#EAE8E3] flex items-center justify-center text-[#525252] hover:bg-[#E2E0DB] transition-colors cursor-pointer text-sm font-medium">
-            {user?.nickname?.charAt(0).toUpperCase() || 'S'}
-          </div>
-        </div>
+      <div className={`flex-1 bg-claude-bg h-screen flex flex-col relative overflow-hidden text-claude-text ${showEntranceAnimation ? 'animate-slide-in' : ''}`}>
+
 
         {/* Centered Content */}
         <div
@@ -668,15 +1097,37 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
               <ClaudeLogo />
             </div>
             <h1
-              className="font-serif-claude text-[#222] font-normal tracking-tight leading-none pt-1"
-              style={{ fontSize: `${tunerConfig?.welcomeSize || 32}px` }}
+              className="text-claude-text tracking-tight leading-none pt-1"
+              style={{
+                fontFamily: 'Spectral',
+                fontSize: `${tunerConfig?.welcomeSize || 32}px`,
+                fontWeight: 500,
+                WebkitTextStroke: '0.5px currentColor',
+              }}
             >
-              {user ? `Hello, ${user.nickname}` : 'Hello, night owl'}
+              {welcomeGreeting}
             </h1>
           </div>
 
+          {/* 无套餐提示 */}
+          {hasSubscription === false && (
+            <div className="w-full max-w-md mb-6 bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-2xl p-6 text-center">
+              <h3 className="text-base font-semibold text-gray-800 mb-2">您当前没有可用套餐</h3>
+              <p className="text-sm text-gray-500 mb-4">购买套餐后即可开始使用 AI 对话功能</p>
+              <button
+                onClick={() => {
+                  // Navigate to upgrade page — trigger the onOpenUpgrade in parent Layout
+                  window.dispatchEvent(new CustomEvent('open-upgrade'));
+                }}
+                className="px-6 py-2.5 bg-[#D97757] hover:bg-[#c4684b] text-white text-sm font-medium rounded-xl transition-colors"
+              >
+                购买套餐
+              </button>
+            </div>
+          )}
+
           {/* 输入框区域 */}
-          <div className="w-full relative group">
+          <div className={`w-full relative group ${hasSubscription === false ? 'opacity-40 pointer-events-none select-none' : ''}`}>
             <input
               type="file"
               ref={fileInputRef}
@@ -689,33 +1140,35 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
               }}
             />
             <div
-              className={`bg-white border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#D1D1D1] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#D1D1D1] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-[#E8E7E3]'}`}
+              className={`bg-claude-input border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col max-h-[60vh] ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
               style={{ borderRadius: `${tunerConfig?.inputRadius || 16}px` }}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
             >
-              <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
-              <textarea
-                ref={inputRef}
-                className="w-full px-4 pt-4 pb-2 text-[#111] placeholder:text-[#949494] text-[16px] outline-none font-sans resize-none overflow-hidden"
-                style={{ minHeight: '72px', borderRadius: `${tunerConfig?.inputRadius || 16}px ${tunerConfig?.inputRadius || 16}px 0 0` }}
-                placeholder="How can I help you today?"
-                value={inputText}
-                onChange={(e) => {
-                  setInputText(e.target.value);
-                  e.target.style.height = 'auto';
-                  e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
-                  e.target.style.overflowY = e.target.scrollHeight > 300 ? 'auto' : 'hidden';
-                }}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-              />
-              <div className="px-4 pb-3 pt-1 flex items-center justify-between">
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
+                <textarea
+                  ref={inputRef}
+                  className="w-full px-4 pt-4 pb-2 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none font-sans resize-none overflow-hidden bg-transparent"
+                  style={{ minHeight: '72px', borderRadius: `${tunerConfig?.inputRadius || 16}px ${tunerConfig?.inputRadius || 16}px 0 0` }}
+                  placeholder="How can I help you today?"
+                  value={inputText}
+                  onChange={(e) => {
+                    setInputText(e.target.value);
+                    e.target.style.height = 'auto';
+                    e.target.style.height = Math.min(e.target.scrollHeight, 300) + 'px';
+                    e.target.style.overflowY = e.target.scrollHeight > 300 ? 'auto' : 'hidden';
+                  }}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                />
+              </div>
+              <div className="px-4 pb-3 pt-1 flex items-center justify-between flex-shrink-0">
                 <div>
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-2 text-[#747474] hover:text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors"
+                    className="p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
                   >
                     <IconPlus size={20} />
                   </button>
@@ -744,342 +1197,179 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig }: MainContentProps) => 
 
   // MODE 2: Chat Interface (Has ID or Messages)
   return (
-    <div className="flex-1 bg-claude-bg h-screen flex flex-col relative overflow-hidden text-[#393939]">
-      {/* Header for Chat Mode */}
-      <div className="flex items-center justify-between px-3 py-2 bg-claude-bg sticky top-0 z-30 h-12">
-        <button className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-[#EAE8E3] rounded-md transition-colors text-[14px] font-medium text-[#393939] max-w-[60%] -ml-1">
-          <span className="truncate">{conversationTitle || 'New Chat'}</span>
-          <ChevronDown size={14} className="text-[#999]" />
-        </button>
-
-        <div className="flex items-center gap-1">
-          <button className="w-8 h-8 flex items-center justify-center text-[#5e5e5e] hover:bg-[#EAE8E3] rounded-md transition-colors">
-            <FileText size={18} strokeWidth={1.5} />
-          </button>
-          <button className="px-3 py-1.5 text-[13px] font-medium text-[#5e5e5e] hover:bg-[#EAE8E3] rounded-md transition-colors border border-transparent hover:border-[#D1D1D1]/50">
-            Share
-          </button>
-        </div>
-      </div>
-
-      <div
-        className="flex-1 overflow-y-auto w-full"
-        style={{ paddingBottom: '160px' }}
-        ref={scrollContainerRef}
-        onScroll={handleScroll}
-      >
+    <div className="flex-1 bg-claude-bg h-full flex flex-col overflow-clip text-claude-text chat-root chat-font-scope">
+      {/* Content area - positioning container for scroll + bottom bars */}
+      <div className="flex-1 min-h-0 relative">
         <div
-          className="w-full mx-auto px-4 py-8 pb-32"
-          style={{ maxWidth: `${tunerConfig?.mainContentWidth || 768}px` }}
+          className="absolute inset-0 overflow-y-auto chat-scroll"
+          style={{ paddingBottom: '160px' }}
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
         >
-          {messages.map((msg, idx) => (
-            <div key={idx} className="mb-6 group">
-              {msg.role === 'user' ? (
-                editingMessageIdx === idx ? (
-                  // User Message — 编辑模式（全宽）
-                  <div className="w-full">
-                    <div className="bg-[#F0EEE7] rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed font-sans">
-                      <textarea
-                        className="w-full bg-transparent text-[#2D2D2D] outline-none resize-none font-sans text-[16px] leading-relaxed"
-                        value={editingContent}
-                        onChange={(e) => {
-                          setEditingContent(e.target.value);
-                          e.target.style.height = 'auto';
-                          e.target.style.height = e.target.scrollHeight + 'px';
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Escape') handleEditCancel();
-                        }}
-                        ref={(el) => {
-                          if (el) {
-                            el.style.height = 'auto';
-                            el.style.height = el.scrollHeight + 'px';
-                            el.focus();
-                          }
-                        }}
-                        style={{ minHeight: '60px' }}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[13px] text-[#999]">
-                        Submitting will replace this response and all following messages
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={handleEditCancel}
-                          className="px-4 py-1.5 text-[13px] font-medium text-[#555] bg-[#E8E7E3] hover:bg-[#DDDCD8] rounded-lg transition-colors"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          onClick={handleEditSave}
-                          disabled={!editingContent.trim()}
-                          className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#D97757] hover:bg-[#c4694a] rounded-lg transition-colors disabled:opacity-40"
-                        >
-                          Send
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  // User Message — 普通模式
-                  <div className="flex flex-col items-end">
-                    {/* 附件展示 */}
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className="max-w-[85%] w-fit mb-1">
-                        <MessageAttachments attachments={msg.attachments} />
-                      </div>
-                    )}
-                    {/* 消息气泡 */}
-                    <div className="max-w-[85%] w-fit relative">
-                      <div
-                        className="bg-[#F0EEE7] text-[#2D2D2D] px-5 py-3.5 text-[16px] leading-relaxed font-sans whitespace-pre-wrap break-words relative overflow-hidden"
-                        style={{
-                          maxHeight: expandedMessages.has(idx) ? 'none' : '300px',
-                          borderRadius: ((() => {
-                            const el = messageContentRefs.current.get(idx);
-                            const isOverflow = el && el.scrollHeight > 300;
-                            return isOverflow;
-                          })()) ? '16px 16px 0 0' : '16px',
-                        }}
-                        ref={(el) => {
-                          if (el) messageContentRefs.current.set(idx, el);
-                        }}
-                      >
-                        {msg.content}
-                        {/* 渐变遮罩 - 仅在内容超出且未展开时显示 */}
-                        {!expandedMessages.has(idx) && (() => {
-                          const el = messageContentRefs.current.get(idx);
-                          return el && el.scrollHeight > 300;
-                        })() && (
-                            <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#F0EEE7] to-transparent pointer-events-none" />
-                          )}
-                      </div>
-                      {/* Show More / Show Less 纯色底栏 - 气泡延伸部分 */}
-                      {(() => {
-                        const el = messageContentRefs.current.get(idx);
-                        const isOverflow = el && el.scrollHeight > 300;
-                        if (!isOverflow) return null;
-                        return (
-                          <div className="bg-[#F0EEE7] rounded-b-2xl px-5 pb-3 pt-1 -mt-[1px] relative" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
-                            <button
-                              onClick={() => toggleMessageExpand(idx)}
-                              className="text-[13px] text-[#999] hover:text-[#666] transition-colors"
-                            >
-                              {expandedMessages.has(idx) ? 'Show less' : 'Show more'}
-                            </button>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    {/* 操作栏：时间戳 + 按钮 */}
-                    <div className="flex items-center gap-1.5 mt-1.5 pr-1">
-                      {msg.created_at && (
-                        <span className="text-[12px] text-[#999] mr-1">
-                          {formatMessageTime(msg.created_at)}
-                        </span>
-                      )}
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => handleResendMessage(msg.content, idx)}
-                          className="p-1 text-[#999] hover:text-[#555] hover:bg-black/5 rounded transition-colors"
-                          title="重新发送"
-                        >
-                          <RotateCcw size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleEditMessage(msg.content, idx)}
-                          className="p-1 text-[#999] hover:text-[#555] hover:bg-black/5 rounded transition-colors"
-                          title="编辑"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleCopyMessage(msg.content, idx)}
-                          className="p-1 text-[#999] hover:text-[#555] hover:bg-black/5 rounded transition-colors"
-                          title="复制"
-                        >
-                          {copiedMessageIdx === idx ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              ) : (
-                <div className="px-1 text-[#2D2D2D] text-[16px] leading-relaxed font-sans mt-2">
-                  {/* Thinking Block */}
-                  {msg.thinking && (
-                    <div className="mb-3">
-                      <div className="bg-[#FAF9F5] border border-[#E5E5E5] rounded-lg overflow-hidden">
-                        <div
-                          className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-[#F2F0EB] transition-colors select-none"
-                          onClick={() => {
-                            // Toggle expand logic - requires state update
-                            setMessages(prev => {
-                              const newMsgs = [...prev];
-                              newMsgs[idx].isThinkingExpanded = !newMsgs[idx].isThinkingExpanded;
-                              return newMsgs;
-                            });
-                          }}
-                        >
-                          <ChevronDown
-                            size={14}
-                            className={`text-[#9CA3AF] transform transition-transform ${msg.isThinkingExpanded ? 'rotate-180' : '-rotate-90'}`}
-                          />
-                          <span className="text-[13px] font-medium text-[#6B7280]">
-                            {msg.isThinking ? "Thinking Process..." : "Thinking Process"}
-                          </span>
-                          {msg.isThinking && (
-                            <span className="inline-block w-2 h-4 ml-auto text-claude-accent animate-pulse font-bold">•</span>
-                          )}
-                        </div>
+          <div
+            className="w-full mx-auto px-4 py-8 pb-32"
+            style={{ maxWidth: `${tunerConfig?.mainContentWidth || 768}px` }}
+          >
+            <MessageList
+              messages={messages}
+              loading={loading}
+              expandedMessages={expandedMessages}
+              editingMessageIdx={editingMessageIdx}
+              editingContent={editingContent}
+              copiedMessageIdx={copiedMessageIdx}
+              compactStatus={compactStatus}
+              onSetEditingContent={setEditingContent}
+              onEditCancel={handleEditCancel}
+              onEditSave={handleEditSave}
+              onToggleExpand={toggleMessageExpand}
+              onResend={handleResendMessage}
+              onEdit={handleEditMessage}
+              onCopy={handleCopyMessage}
+              onOpenDocument={onOpenDocument}
+              onSetMessages={setMessages}
+              messageContentRefs={messageContentRefs}
+            />
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
 
-                        {(msg.isThinkingExpanded || msg.isThinking) && (
-                          <div className="px-4 py-3 border-t border-[#E5E5E5] bg-[#FAF9F5] text-[#6B7280] text-[14px] leading-relaxed font-mono whitespace-pre-wrap relative">
-                            <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-[#D4A574] opacity-50"></div>
-                            {msg.thinking}
-                            {msg.isThinking && <span className="animate-pulse">_</span>}
-                          </div>
-                        )}
-                      </div>
-                      {!msg.isThinking && !msg.isThinkingExpanded && (
-                        <div className="ml-2 pl-2 border-l-2 border-[#E5E5E5] text-[12px] text-[#9CA3AF] py-1 cursor-pointer hover:text-[#6B7280]" onClick={() => {
-                          setMessages(prev => {
-                            const newMsgs = [...prev];
-                            newMsgs[idx].isThinkingExpanded = true;
-                            return newMsgs;
-                          });
-                        }}>
-                          Click to view thinking content
-                        </div>
-                      )}
-                    </div>
-                  )}
+        {/* 免责声明 - 固定在最底部 */}
+        <div className="absolute bottom-0 left-0 z-10 bg-claude-bg text-center text-[12px] text-claude-textSecondary py-2 pointer-events-none" style={{ right: `${scrollbarWidth}px` }}>
+          Claude is AI and can make mistakes. Please double-check responses.
+        </div>
 
-                  {/* Search Status */}
-                  {msg.searchStatus && !msg.content && (
-                    <div className="flex items-center gap-2 text-[13px] text-[#6B7280] mb-2">
-                      <span className="inline-block w-3 h-3 border-2 border-[#D97757] border-t-transparent rounded-full animate-spin"></span>
-                      {msg.searchStatus}
-                    </div>
-                  )}
-
-                  <MarkdownRenderer content={msg.content} citations={msg.citations} />
-
-                  {/* 等待响应中 — 呼吸动画 */}
-                  {loading && idx === messages.length - 1 && !msg.content && !msg.thinking && !msg.searchStatus && (
-                    <span className="inline-block ml-1 align-middle" style={{ verticalAlign: 'middle' }}>
-                      <ClaudeLogo
-                        breathe
-                        style={{ width: '40px', height: '40px', display: 'inline-block' }}
-                      />
-                    </span>
-                  )}
-
-                  {/* 流式输出中 — 转圈动画 */}
-                  {loading && idx === messages.length - 1 && (msg.content || msg.thinking || msg.searchStatus) && (
-                    <span className="inline-block ml-1 align-middle" style={{ verticalAlign: 'middle' }}>
-                      <ClaudeLogo
-                        autoAnimate
-                        style={{ width: '40px', height: '40px', display: 'inline-block' }}
-                      />
-                    </span>
-                  )}
-                  {/* 回答结束后 — 静态图标（仅最后一条 assistant 消息） */}
-                  {!loading && idx === messages.length - 1 && msg.content && (
-                    <span className="inline-block ml-0.5 mt-3">
-                      <ClaudeLogo
-                        style={{ width: '40px', height: '40px', display: 'inline-block' }}
-                      />
-                    </span>
-                  )}
-
-                </div>
-              )}
+        {/* 输入框 - 浮动在内容上方，底部距离可调 */}
+        {hasSubscription === false ? (
+          <div className="absolute left-0 right-0 z-20" style={{ bottom: `${inputBarBottom + 28}px`, paddingLeft: '16px', paddingRight: `${16 + scrollbarWidth}px` }}>
+            <div className="mx-auto" style={{ maxWidth: `${inputBarWidth}px` }}>
+              <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-2xl p-5 text-center">
+                <p className="text-sm text-gray-600 mb-3">您当前没有可用套餐，无法发送消息</p>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-upgrade'))}
+                  className="px-5 py-2 bg-[#D97757] hover:bg-[#c4684b] text-white text-sm font-medium rounded-xl transition-colors"
+                >
+                  购买套餐
+                </button>
+              </div>
             </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      {/* 免责声明 - 固定在最底部 */}
-      <div className="absolute bottom-0 left-0 z-10 bg-claude-bg text-center text-[12px] text-[#777] py-2 pointer-events-none" style={{ right: `${scrollbarWidth}px` }}>
-        Claude is AI and can make mistakes. Please double-check responses.
-      </div>
-
-      {/* 输入框 - 浮动在内容上方，底部距离可调 */}
-      <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ bottom: `${inputBarBottom + 28}px`, paddingLeft: '16px', paddingRight: `${16 + scrollbarWidth}px` }}>
-        <div
-          className="mx-auto pointer-events-auto"
-          style={{ maxWidth: `${inputBarWidth}px` }}
-        >
-          <div className="w-full relative group">
+          </div>
+        ) : (
+          <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ bottom: `${inputBarBottom + 28}px`, paddingLeft: '16px', paddingRight: `${16 + scrollbarWidth}px` }}>
             <div
-              className={`bg-white border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#D1D1D1] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#D1D1D1] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-[#E8E7E3]'}`}
-              style={{ borderRadius: `${inputBarRadius}px` }}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
+              className="mx-auto pointer-events-auto"
+              style={{ maxWidth: `${inputBarWidth}px` }}
             >
-              <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
-              <textarea
-                ref={inputRef}
-                className="w-full px-4 pt-3 pb-1 text-[#111] placeholder:text-[#949494] text-[16px] outline-none font-sans resize-none overflow-hidden bg-transparent"
-                style={{ height: `${inputBarMinHeight}px`, minHeight: '16px', boxSizing: 'content-box' }}
-                placeholder="How can I help you today?"
-                value={inputText}
-                onChange={(e) => {
-                  setInputText(e.target.value);
-                  // content-box 下 scrollHeight 包含 padding (pt-3=12px, pb-1=4px = 16px)
-                  const padding = 16;
-                  e.target.style.height = `${inputBarMinHeight}px`;
-                  const contentHeight = e.target.scrollHeight - padding;
-                  if (contentHeight > inputBarMinHeight) {
-                    const newH = Math.min(contentHeight, 300);
-                    e.target.style.height = newH + 'px';
-                    e.target.style.overflowY = contentHeight > 300 ? 'auto' : 'hidden';
-                  }
-                }}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-              />
-              <div className="px-4 pb-3 pt-1 flex items-center justify-between">
-                <div>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="p-2 text-[#747474] hover:text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors"
-                  >
-                    <IconPlus size={20} />
-                  </button>
-                </div>
-                <div className="flex items-center gap-3">
-                  <ModelSelector
-                    currentModelString={currentModelString}
-                    onModelChange={handleModelChange}
-                    isNewChat={false}
-                    dropdownPosition="top"
+              <div className="w-full relative group">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  multiple
+                  accept={ACCEPTED_TYPES}
+                  onChange={(e) => {
+                    if (e.target.files) handleFilesSelected(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+                <div
+                  className={`bg-claude-input border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
+                  style={{ borderRadius: `${inputBarRadius}px` }}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
+                  <textarea
+                    ref={inputRef}
+                    className="w-full px-4 pt-4 pb-0 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none font-sans resize-none bg-transparent"
+                    style={{ height: `${inputBarBaseHeight}px`, minHeight: '16px', boxSizing: 'border-box', overflowY: 'hidden' }}
+                    placeholder="How can I help you today?"
+                    value={inputText}
+                    onChange={(e) => {
+                      setInputText(e.target.value);
+                      adjustTextareaHeight();
+                    }}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
                   />
-                  {loading ? (
-                    <button
-                      onClick={handleStop}
-                      className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors"
-                    >
-                      <Square size={18} fill="white" strokeWidth={0} />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || pendingFiles.some(f => f.status === 'uploading')}
-                      className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <ArrowUp size={22} strokeWidth={2.5} />
-                    </button>
-                  )}
+                  <div className="px-4 pb-3 pt-1 flex items-center justify-between">
+                    <div className="relative">
+                      <button
+                        ref={plusBtnRef}
+                        onClick={() => setShowPlusMenu(prev => !prev)}
+                        className="p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
+                      >
+                        <IconPlus size={20} />
+                      </button>
+                      {showPlusMenu && (
+                        <div
+                          ref={plusMenuRef}
+                          className="absolute bottom-full left-0 mb-2 w-[220px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50"
+                        >
+                          <button
+                            onClick={() => {
+                              setShowPlusMenu(false);
+                              fileInputRef.current?.click();
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                          >
+                            <Paperclip size={16} className="text-[#525252]" />
+                            Add files or photos
+                          </button>
+                          <button
+                            onClick={async () => {
+                              setShowPlusMenu(false);
+                              if (!activeId || compactStatus.state === 'compacting') return;
+                              setCompactStatus({ state: 'compacting' });
+                              try {
+                                const result = await compactConversation(activeId);
+                                await loadConversation(activeId);
+                                setCompactStatus({ state: 'done', message: `Compacted ${result.messagesCompacted} messages, saved ~${result.tokensSaved} tokens` });
+                                setTimeout(() => setCompactStatus({ state: 'idle' }), 4000);
+                              } catch (err) {
+                                console.error('Compact failed:', err);
+                                setCompactStatus({ state: 'error', message: 'Compaction failed' });
+                                setTimeout(() => setCompactStatus({ state: 'idle' }), 3000);
+                              }
+                            }}
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                          >
+                            <ListCollapse size={16} className="text-claude-textSecondary" />
+                            Compact conversation
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <ModelSelector
+                        currentModelString={currentModelString}
+                        onModelChange={handleModelChange}
+                        isNewChat={false}
+                        dropdownPosition="top"
+                      />
+                      {loading ? (
+                        <button
+                          onClick={handleStop}
+                          className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors"
+                        >
+                          <Square size={18} fill="white" strokeWidth={0} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleSend}
+                          disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || pendingFiles.some(f => f.status === 'uploading')}
+                          className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <ArrowUp size={22} strokeWidth={2.5} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

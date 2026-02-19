@@ -1,9 +1,12 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { ChevronDown, Copy, Check } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneLight, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 
 export interface CitationSource {
   url: string;
@@ -42,6 +45,32 @@ function getSourceIndex(url: string, sources: CitationSource[]): number {
  */
 function stripCiteTags(text: string): string {
   return text.replace(/<cite\s+index="[^"]*"\s*>([\s\S]*?)<\/cite>/g, '$1');
+}
+
+/**
+ * 规范化 $$...$$ 数学块：
+ * - LLM 经常输出 `$$...`(同一行紧跟内容) 且中间包含换行，这会导致 remark-math 对齐失败/截断。
+ * - 这里将“包含换行的 $$...$$”统一改写成标准块格式：
+ *   \n\n$$\n...\n$$\n\n
+ *
+ * 注意：跳过 ```fenced code```，避免改写代码块里的 $$
+ */
+function normalizeMathBlocks(text: string): string {
+  // Split on fenced code blocks and only normalize non-code segments.
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  return parts
+    .map((part) => {
+      if (part.startsWith('```')) return part;
+      return part.replace(/\$\$([\s\S]+?)\$\$/g, (_m, inner: string) => {
+        if (!inner.includes('\n')) {
+          // Keep inline-style $$...$$ untouched to avoid changing layout unexpectedly.
+          return `$$${inner}$$`;
+        }
+        const body = inner.trim();
+        return `\n\n$$\n${body}\n$$\n\n`;
+      });
+    })
+    .join('');
 }
 
 /** 引用角标组件 */
@@ -150,28 +179,45 @@ const SourcesList: React.FC<{ sources: CitationSource[] }> = ({ sources }) => {
 const CodeBlock: React.FC<{ language: string; code: string; className?: string }> = ({ language, code }) => {
   const [copied, setCopied] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const checkDark = () => setIsDark(document.documentElement.classList.contains('dark'));
+    checkDark();
+
+    // Observer for class changes on html element
+    const observer = new MutationObserver(checkDark);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+
+    return () => observer.disconnect();
+  }, []);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    import('../utils/clipboard').then(({ copyToClipboard }) => {
+      copyToClipboard(code).then((success) => {
+        if (success) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }
+      });
     });
   }, [code]);
 
   return (
     <div
-      className="relative rounded-md overflow-hidden my-3 text-sm border border-[#E5E5E5]"
-      style={{ backgroundColor: 'rgb(252, 252, 250)' }}
+      className={`relative rounded-md overflow-hidden my-3 text-sm border ${isDark ? 'border-[#383836] bg-[#30302E]' : 'border-[#E5E5E5] bg-[#FCFCFA]'}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {language && (
-        <div className="px-2 pt-1.5 pb-0 text-[12px] text-[#666] font-mono select-none">{language}</div>
+        <div className={`px-2 pt-1.5 pb-0 text-[12px] font-mono select-none ${isDark ? 'text-[#999]' : 'text-[#666]'}`}>
+          {language}
+        </div>
       )}
       {hovered && (
         <button
           onClick={handleCopy}
-          className="absolute top-2 right-2 p-2 rounded-md bg-white/80 text-[#666] hover:text-[#333] hover:bg-white transition-colors z-10"
+          className={`absolute top-2 right-2 p-2 rounded-md transition-colors z-10 ${isDark ? 'bg-[#333] text-[#AAA] hover:bg-[#444] hover:text-white' : 'bg-white/80 text-[#666] hover:text-[#333] hover:bg-white'}`}
           title="复制代码"
         >
           {copied ? <Check size={18} /> : <Copy size={18} />}
@@ -179,7 +225,7 @@ const CodeBlock: React.FC<{ language: string; code: string; className?: string }
       )}
       <SyntaxHighlighter
         language={language || 'text'}
-        style={oneLight}
+        style={isDark ? vscDarkPlus : oneLight}
         customStyle={{
           margin: 0,
           padding: '12px',
@@ -198,7 +244,7 @@ const CodeBlock: React.FC<{ language: string; code: string; className?: string }
 };
 
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations }) => {
-  const processed = stripCiteTags(content);
+  const processed = normalizeMathBlocks(stripCiteTags(content));
   const sources = citations ? deduplicateSources(citations) : [];
   const hasCitations = sources.length > 0;
 
@@ -207,12 +253,16 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations 
   // 角标通过 SourcesList 和内联 badge 展示
 
   return (
-    <div className="markdown-body text-[#393939] text-[16px] leading-relaxed" style={{ fontFamily: "'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" }}>
+    <div className="markdown-body text-claude-text text-[16px] leading-relaxed overflow-x-hidden" style={{ fontFamily: "'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" }}>
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkMath]}
+        rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: 'ignore' }]]}
         components={{
           pre({ children, ...props }: any) {
             return <>{children}</>;
+          },
+          hr({ children, ...props }: any) {
+            return <hr className="my-6 border-t border-claude-border dark:border-[rgb(66,65,62)]" {...props} />;
           },
           table({ children, ...props }: any) {
             return (
@@ -222,19 +272,19 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations 
             );
           },
           thead({ children, ...props }: any) {
-            return <thead style={{ borderBottom: '1px solid rgb(136, 135, 133)' }} {...props}>{children}</thead>;
+            return <thead className="border-b border-black dark:border-white" {...props}>{children}</thead>;
           },
           tbody({ children, ...props }: any) {
             return <tbody {...props}>{children}</tbody>;
           },
           tr({ children, ...props }: any) {
-            return <tr style={{ borderBottom: '1px solid rgb(136, 135, 133)' }} {...props}>{children}</tr>;
+            return <tr className="border-b border-black dark:border-white" {...props}>{children}</tr>;
           },
           th({ children, ...props }: any) {
-            return <th className="text-left py-2 pr-4 font-semibold text-[#393939]" {...props}>{children}</th>;
+            return <th className="text-left py-2 pr-4 font-semibold text-claude-text" {...props}>{children}</th>;
           },
           td({ children, ...props }: any) {
-            return <td className="py-2 pr-4 text-[#393939]" {...props}>{children}</td>;
+            return <td className="py-2 pr-4 text-claude-text" {...props}>{children}</td>;
           },
           code({ node, className, children, ...props }: any) {
             const isBlock = className?.startsWith('language-') || (node?.position?.start?.line !== node?.position?.end?.line);
@@ -244,7 +294,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations 
               return <CodeBlock language={language} code={codeText} className={className} {...props} />;
             }
             return (
-              <code className="bg-black/5 px-1.5 py-0.5 rounded text-sm font-mono border border-[rgb(208,207,204)]" style={{ color: 'rgb(132, 33, 35)' }} {...props}>
+              <code className="inline-code px-1.5 py-0.5 rounded text-sm font-mono border border-transparent" {...props}>
                 {children}
               </code>
             );
@@ -265,4 +315,4 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations 
   );
 };
 
-export default MarkdownRenderer;
+export default React.memo(MarkdownRenderer);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Crown, Zap, Star, Gem } from 'lucide-react';
-import { getPlans, createPaymentOrder, getPaymentStatus, mockPay, getUserProfile, redeemCode } from '../api';
+import { ArrowLeft, Crown, Zap, Star, Gem, Check } from 'lucide-react';
+import { getPlans, createPaymentOrder, getPaymentStatus, getUserUsage, redeemCode } from '../api';
 
 interface UpgradePlanProps {
   onClose: () => void;
@@ -12,6 +12,8 @@ interface Plan {
   price: number;
   duration_days: number;
   token_quota: number;
+  window_budget: number;
+  weekly_budget: number;
   description: string;
 }
 
@@ -19,7 +21,7 @@ const PLAN_ICONS = [Zap, Star, Crown, Gem];
 
 const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [activeSub, setActiveSub] = useState<any>(null);
+  const [currentPlanPrice, setCurrentPlanPrice] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [payStep, setPayStep] = useState<'select' | 'method' | 'paying' | 'success' | 'timeout'>('select');
@@ -35,10 +37,12 @@ const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
   useEffect(() => {
     Promise.all([
       getPlans(),
-      getUserProfile(),
-    ]).then(([plansData, profile]) => {
+      getUserUsage(),
+    ]).then(([plansData, usage]) => {
       setPlans(plansData);
-      setActiveSub(profile);
+      if (usage.plan && typeof usage.plan.price === 'number') {
+        setCurrentPlanPrice(usage.plan.price);
+      }
       setLoading(false);
     }).catch(() => setLoading(false));
 
@@ -52,15 +56,16 @@ const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
     return `¥${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 1)}`;
   };
 
-  const formatTokens = (n: number) => {
-    if (n >= 1000000) return `${(n / 1000000).toFixed(0)}M`;
-    if (n >= 1000) return `${(n / 1000).toFixed(0)}K`;
-    return String(n);
+  const formatQuota = (units: number) => {
+    return `$${(units / 10000).toFixed(2)}`;
   };
 
-  const estimateConversations = (tokens: number) => {
-    // 约 50K tokens 一轮对话
-    return Math.floor(tokens / 50000);
+  // Estimate conversations per 5h window
+  // Average cost per conversation ~$0.04 (mixed model usage)
+  const AVG_COST_PER_CONV = 0.1;
+  const estimateWindowConvs = (windowBudget: number) => {
+    if (!windowBudget || windowBudget <= 0) return 0;
+    return Math.floor(windowBudget / AVG_COST_PER_CONV);
   };
 
   const handleBuy = (plan: Plan) => {
@@ -106,17 +111,6 @@ const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
   const clearPolling = () => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
-  };
-
-  const handleMockPay = async () => {
-    if (!orderId) return;
-    try {
-      await mockPay(orderId);
-      clearPolling();
-      setPayStep('success');
-    } catch (err: any) {
-      setError(err.message || '模拟支付失败');
-    }
   };
 
   const handleRetry = () => {
@@ -222,16 +216,26 @@ const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
             {plans.map((plan, idx) => {
               const Icon = PLAN_ICONS[idx] || Star;
               const isSelected = selectedPlan?.id === plan.id;
+              const isCurrent = currentPlanPrice !== null && plan.price === currentPlanPrice;
+              const isLower = currentPlanPrice !== null && plan.price < currentPlanPrice;
+              const isUpgrade = currentPlanPrice !== null && plan.price > currentPlanPrice;
+              const disabled = isCurrent || isLower;
               return (
                 <div
                   key={plan.id}
-                  onClick={() => setSelectedPlan(plan)}
-                  className={`relative flex flex-col p-5 rounded-2xl border-2 bg-white transition-all cursor-pointer ${
-                    isSelected ? 'border-[#D97757] shadow-md' : 'border-[#E0DFDC] hover:border-[#CCC]'
+                  onClick={() => !disabled && setSelectedPlan(plan)}
+                  className={`relative flex flex-col p-5 rounded-2xl border-2 bg-white transition-all ${
+                    disabled ? 'opacity-60 cursor-not-allowed' :
+                    isSelected ? 'border-[#D97757] shadow-md cursor-pointer' : 'border-[#E0DFDC] hover:border-[#CCC] cursor-pointer'
                   }`}
                 >
+                  {isCurrent && (
+                    <div className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 bg-[#4B9C68]/10 text-[#4B9C68] text-[11px] font-medium rounded-full">
+                      <Check size={12} /> 当前套餐
+                    </div>
+                  )}
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${
-                    isSelected ? 'bg-[#FDF3EE] text-[#D97757]' : 'bg-[#F5F4F1] text-[#666]'
+                    isSelected && !disabled ? 'bg-[#FDF3EE] text-[#D97757]' : 'bg-[#F5F4F1] text-[#666]'
                   }`}>
                     <Icon size={20} />
                   </div>
@@ -242,17 +246,23 @@ const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
                   </div>
                   <div className="text-[12px] text-[#999] mb-4">{plan.duration_days} 天</div>
                   <div className="text-[13px] text-[#555] mb-4 space-y-1">
-                    <div>{formatTokens(plan.token_quota)} tokens</div>
+                    <div>{plan.window_budget > 0
+                      ? `每 5 小时约 ${estimateWindowConvs(plan.window_budget)} 次对话`
+                      : `约 ${Math.floor((plan.token_quota / 10000) / AVG_COST_PER_CONV)} 次对话`
+                    }</div>
                   </div>
                   <button
-                    onClick={() => handleBuy(plan)}
+                    onClick={(e) => { e.stopPropagation(); if (!disabled) handleBuy(plan); }}
+                    disabled={disabled}
                     className={`mt-auto w-full py-2.5 rounded-lg text-[14px] font-medium transition-colors ${
-                      isSelected
-                        ? 'bg-[#D97757] hover:bg-[#c4694a] text-white'
-                        : 'bg-[#F5F4F1] hover:bg-[#EAE8E3] text-[#333]'
+                      disabled
+                        ? 'bg-[#F0EFEC] text-[#AAA] cursor-not-allowed'
+                        : isSelected
+                          ? 'bg-[#D97757] hover:bg-[#c4694a] text-white'
+                          : 'bg-[#F5F4F1] hover:bg-[#EAE8E3] text-[#333]'
                     }`}
                   >
-                    立即购买
+                    {isCurrent ? '当前套餐' : isLower ? '低于当前套餐' : isUpgrade ? '升级' : '立即购买'}
                   </button>
                 </div>
               );
@@ -298,17 +308,11 @@ const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
               <p className="text-[14px] text-[#666] mb-4">{selectedPlan.name} — {formatPrice(selectedPlan.price)}</p>
               <div className="w-48 h-48 mx-auto bg-[#F5F4F1] rounded-xl flex items-center justify-center mb-4">
                 <div className="text-[13px] text-[#999] text-center px-4">
-                  支付平台未接入<br />请使用模拟支付测试
+                  正在加载支付二维码...
                 </div>
               </div>
               <p className="text-[13px] text-[#999] mb-4">请在 5 分钟内完成支付</p>
               {error && <div className="mb-4 p-3 bg-red-50 text-red-600 text-[13px] rounded-lg">{error}</div>}
-              <button
-                onClick={handleMockPay}
-                className="w-full py-2.5 bg-[#D97757] hover:bg-[#c4694a] text-white rounded-lg text-[14px] font-medium transition-colors mb-3"
-              >
-                模拟支付（开发测试）
-              </button>
               <button onClick={handleRetry} className="text-[13px] text-[#666] hover:text-[#333] transition-colors">
                 取消
               </button>

@@ -99,4 +99,4 @@ const MessageAttachments: React.FC<MessageAttachmentsProps> = ({ attachments }) 
   );
 };
 
-export default MessageAttachments;
+export default React.memo(MessageAttachments);

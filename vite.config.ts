@@ -8,6 +8,12 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '::',
+        proxy: {
+          '/api': {
+            target: 'http://127.0.0.1:20080',
+            changeOrigin: true,
+          },
+        },
       },
       plugins: [react()],
       define: {
@@ -18,6 +24,16 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
+      },
+      build: {
+        reportCompressedSize: false,
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              recharts: ['recharts'],
+            },
+          },
+        },
       }
     };
 });

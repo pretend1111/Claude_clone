@@ -10,25 +10,25 @@ interface ModelDef {
 }
 
 const MODELS: ModelDef[] = [
-  { 
-    id: 'opus-4.6', 
-    name: 'Opus 4.6', 
-    desc: 'Most capable for ambitious work', 
+  {
+    id: 'opus-4.6',
+    name: 'Opus 4.6',
+    desc: 'Most capable for ambitious work',
     baseValue: 'claude-opus-4-6',
     thinkingValue: 'claude-opus-4-6-thinking'
   },
-  { 
-    id: 'sonnet-4.5', 
-    name: 'Sonnet 4.5', 
-    desc: 'Best for everyday tasks', 
-    baseValue: 'claude-sonnet-4-5-20250929', 
-    thinkingValue: 'claude-sonnet-4-5-20250929-thinking'
+  {
+    id: 'sonnet-4.6',
+    name: 'Sonnet 4.6',
+    desc: 'Best for everyday tasks',
+    baseValue: 'claude-sonnet-4-6',
+    thinkingValue: 'claude-sonnet-4-6-thinking'
   },
-  { 
-    id: 'haiku-4.5', 
-    name: 'Haiku 4.5', 
-    desc: 'Fastest for quick answers', 
-    baseValue: 'claude-haiku-4-5-20251001', 
+  {
+    id: 'haiku-4.5',
+    name: 'Haiku 4.5',
+    desc: 'Fastest for quick answers',
+    baseValue: 'claude-haiku-4-5-20251001',
     thinkingValue: 'claude-haiku-4-5-20251001-thinking'
   }
 ];
@@ -37,9 +37,16 @@ const MORE_MODELS: ModelDef[] = [
   {
     id: 'opus-4.5',
     name: 'Opus 4.5',
-    desc: 'Previous generation Opus', 
+    desc: 'Previous generation Opus',
     baseValue: 'claude-opus-4-5-20251101',
     thinkingValue: 'claude-opus-4-5-20251101-thinking'
+  },
+  {
+    id: 'sonnet-4.5',
+    name: 'Sonnet 4.5',
+    desc: 'Previous generation Sonnet',
+    baseValue: 'claude-sonnet-4-5-20250929',
+    thinkingValue: 'claude-sonnet-4-5-20250929-thinking'
   }
 ];
 
@@ -48,14 +55,14 @@ export function parseModelString(modelStr: string) {
   const allModels = [...MODELS, ...MORE_MODELS];
   // Check exact matches first
   const match = allModels.find(m => m.baseValue === modelStr || m.thinkingValue === modelStr);
-  
+
   if (match) {
     return {
       modelId: match.id,
       isThinking: modelStr.endsWith('-thinking')
     };
   }
-  
+
   // Default to Opus 4.6 Thinking if unknown
   return {
     modelId: 'opus-4.6',
@@ -78,9 +85,10 @@ interface ModelSelectorProps {
   dropdownPosition?: 'top' | 'bottom';
 }
 
-const ModelSelector: React.FC<ModelSelectorProps> = ({ currentModelString, onModelChange, isNewChat, dropdownPosition = 'bottom' }) => {
+const ModelSelector: React.FC<ModelSelectorProps> = ({ currentModelString, onModelChange, isNewChat, dropdownPosition }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [dropUp, setDropUp] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const { modelId, isThinking } = parseModelString(currentModelString);
@@ -97,6 +105,16 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ currentModelString, onMod
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Auto-detect direction when opening
+  const handleToggleOpen = () => {
+    if (!isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      setDropUp(dropdownPosition === 'top' ? true : (dropdownPosition === 'bottom' ? false : spaceBelow < 320));
+    }
+    setIsOpen(!isOpen);
+  };
+
   const handleSelectModel = (id: string) => {
     onModelChange(getModelString(id, isThinking));
     setIsOpen(false);
@@ -110,109 +128,109 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ currentModelString, onMod
   const visibleModels = isNewChat ? MODELS : [currentModelDef];
 
   if (showMore) {
-     // Show "More models" view
-     return (
-        <div className="relative inline-block text-right" ref={containerRef}>
-          <button
-             onClick={() => setIsOpen(!isOpen)}
-             className="flex items-center gap-1.5 text-[15px] font-medium text-[#444] hover:bg-black/5 px-3 py-2 rounded-md transition-colors"
-          >
-             <span>{currentModelDef.name}</span>
-             {isThinking && <span className="text-[#999] font-normal">Extended</span>}
-             <ChevronDown size={14} className="text-[#999]" />
-          </button>
+    // Show "More models" view
+    return (
+      <div className="relative inline-block text-right" ref={containerRef}>
+        <button
+          onClick={handleToggleOpen}
+          className="flex items-center gap-1.5 text-[15px] font-medium text-claude-text hover:bg-claude-hover px-3 py-2 rounded-md transition-colors"
+        >
+          <span>{currentModelDef.name}</span>
+          {isThinking && <span className="text-claude-textSecondary font-normal">Extended</span>}
+          <ChevronDown size={14} className="text-claude-textSecondary" />
+        </button>
 
-          {isOpen && (
-             <div className={`absolute ${dropdownPosition === 'top' ? 'bottom-full' : 'top-full'} right-0 ${dropdownPosition === 'top' ? 'mb-2' : 'mt-2'} w-[240px] bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden py-1 text-left`}>
-                 <div className="px-3 py-2 flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:bg-gray-50" onClick={() => setShowMore(false)}>
-                    <ChevronDown size={16} className="rotate-90" />
-                    <span>Back</span>
-                 </div>
-                 <div className="h-[1px] bg-gray-100 my-1"/>
-                 {MORE_MODELS.map(m => (
-                    <div
-                      key={m.id}
-                      onClick={() => {
-                        handleSelectModel(m.id);
-                        setShowMore(false);
-                      }}
-                      className="px-3 py-2 hover:bg-[#F5F4F1] cursor-pointer flex items-start gap-2 text-left"
-                    >
-                       <div className="flex-1">
-                          <div className="text-[14px] font-medium text-[#333]">{m.name}</div>
-                          {m.desc && <div className="text-[12px] text-[#747474] mt-0.5">{m.desc}</div>}
-                       </div>
-                       {modelId === m.id && <Check size={16} className="text-[#333] mt-0.5" />}
-                    </div>
-                 ))}
-             </div>
-          )}
-        </div>
-     )
+        {isOpen && (
+          <div className={`absolute ${dropUp ? 'bottom-full mb-2' : 'top-full mt-2'} right-0 w-[240px] bg-claude-input rounded-xl shadow-xl border border-claude-border z-50 overflow-hidden py-1 text-left`}>
+            <div className="px-3 py-2 flex items-center gap-2 text-sm text-claude-textSecondary cursor-pointer hover:bg-claude-hover" onClick={() => setShowMore(false)}>
+              <ChevronDown size={16} className="rotate-90" />
+              <span>Back</span>
+            </div>
+            <div className="h-[1px] bg-claude-border my-1" />
+            {MORE_MODELS.map(m => (
+              <div
+                key={m.id}
+                onClick={() => {
+                  handleSelectModel(m.id);
+                  setShowMore(false);
+                }}
+                className="px-3 py-2 hover:bg-claude-hover cursor-pointer flex items-start gap-2 text-left"
+              >
+                <div className="flex-1">
+                  <div className="text-[14px] font-medium text-claude-text">{m.name}</div>
+                  {m.desc && <div className="text-[12px] text-claude-textSecondary mt-0.5">{m.desc}</div>}
+                </div>
+                {modelId === m.id && <Check size={16} className="text-claude-text mt-0.5" />}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
     <div className="relative inline-block text-right" ref={containerRef}>
-       <button
-          onClick={() => setIsOpen(!isOpen)}
-          className="flex items-center gap-1.5 text-[15px] font-medium text-[#444] hover:bg-black/5 px-3 py-2 rounded-md transition-colors"
-       >
-          <span>{currentModelDef.name}</span>
-          {isThinking && <span className="text-[#999] font-normal">Extended</span>}
-          <ChevronDown size={14} className="text-[#999]" />
-       </button>
+      <button
+        onClick={handleToggleOpen}
+        className="flex items-center gap-1.5 text-[15px] font-medium text-claude-text hover:bg-claude-hover px-3 py-2 rounded-md transition-colors"
+      >
+        <span>{currentModelDef.name}</span>
+        {isThinking && <span className="text-claude-textSecondary font-normal">Extended</span>}
+        <ChevronDown size={14} className="text-claude-textSecondary" />
+      </button>
 
-       {isOpen && (
-         <div className={`absolute ${dropdownPosition === 'top' ? 'bottom-full' : 'top-full'} right-0 ${dropdownPosition === 'top' ? 'mb-2' : 'mt-2'} w-[240px] bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden py-1 text-left`}>
+      {isOpen && (
+        <div className={`absolute ${dropUp ? 'bottom-full mb-2' : 'top-full mt-2'} right-0 w-[240px] bg-claude-input rounded-xl shadow-xl border border-claude-border z-50 overflow-hidden py-1 text-left`}>
 
-            {/* Model List */}
-            {visibleModels.map(m => (
-              <div
-                key={m.id}
-                onClick={() => handleSelectModel(m.id)}
-                className="px-3 py-2 hover:bg-[#F5F4F1] cursor-pointer flex items-start gap-2 text-left"
-              >
-                 <div className="flex-1">
-                    <div className="text-[14px] font-medium text-[#333]">{m.name}</div>
-                    <div className="text-[12px] text-[#747474] mt-0.5">{m.desc}</div>
-                 </div>
-                 {modelId === m.id && <Check size={16} className="text-[#2D2D2D] mt-0.5" />}
-              </div>
-            ))}
 
-            <div className="h-[1px] bg-gray-100 my-1"/>
-
-            {/* Extended Thinking Toggle */}
-            <div className="px-3 py-2 flex items-center justify-between hover:bg-[#F5F4F1] text-left">
-               <div className="flex-1">
-                  <div className="text-[14px] font-medium text-[#333]">Extended thinking</div>
-                  <div className="text-[12px] text-[#747474] mt-0.5">Think longer for complex tasks</div>
-               </div>
-
-               <button
-                 onClick={(e) => {
-                    e.stopPropagation();
-                    handleToggleThinking();
-                 }}
-                 className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isThinking ? 'bg-[#3A6FE0]' : 'bg-[#E5E5E5]'}`}
-               >
-                 <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isThinking ? 'left-5' : 'left-1'}`} />
-               </button>
-            </div>
-
-            <div className="h-[1px] bg-gray-100 my-1"/>
-
-            {/* More Models */}
+          {visibleModels.map(m => (
             <div
-              onClick={() => setShowMore(true)}
-              className="px-3 py-2 hover:bg-[#F5F4F1] cursor-pointer flex items-center justify-between text-[#333] text-left"
+              key={m.id}
+              onClick={() => handleSelectModel(m.id)}
+              className="px-3 py-2 hover:bg-claude-hover cursor-pointer flex items-start gap-2 text-left"
             >
-               <span className="text-[14px] font-medium">More models</span>
-               <ChevronRight size={16} className="text-[#999]" />
+              <div className="flex-1">
+                <div className="text-[14px] font-medium text-claude-text">{m.name}</div>
+                <div className="text-[12px] text-claude-textSecondary mt-0.5">{m.desc}</div>
+              </div>
+              {modelId === m.id && <Check size={16} className="text-claude-text mt-0.5" />}
+            </div>
+          ))}
+
+          <div className="h-[1px] bg-claude-border my-1" />
+
+          {/* Extended Thinking Toggle */}
+          <div className="px-3 py-2 flex items-center justify-between hover:bg-claude-hover text-left">
+            <div className="flex-1">
+              <div className="text-[14px] font-medium text-claude-text">Extended thinking</div>
+              <div className="text-[12px] text-claude-textSecondary mt-0.5">Think longer for complex tasks</div>
             </div>
 
-         </div>
-       )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleThinking();
+              }}
+              className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${isThinking ? 'bg-[#3A6FE0]' : 'bg-claude-border'}`}
+            >
+              <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isThinking ? 'left-5' : 'left-1'}`} />
+            </button>
+          </div>
+
+          <div className="h-[1px] bg-claude-border my-1" />
+
+          {/* More Models */}
+          <div
+            onClick={() => setShowMore(true)}
+            className="px-3 py-2 hover:bg-claude-hover cursor-pointer flex items-center justify-between text-claude-text text-left"
+          >
+            <span className="text-[14px] font-medium">More models</span>
+            <ChevronRight size={16} className="text-claude-textSecondary" />
+          </div>
+
+        </div>
+      )}
     </div>
   );
 };

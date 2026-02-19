@@ -14,8 +14,8 @@ import {
 } from './Icons';
 import claudeImg from '../assets/icons/claude.png';
 import { NAV_ITEMS } from '../constants';
-import { ChevronUp, Settings, Gem, HelpCircle, LogOut } from 'lucide-react';
-import { getConversations, deleteConversation, getUser, logout } from '../api';
+import { ChevronUp, Settings, HelpCircle, LogOut, Shield, CreditCard } from 'lucide-react';
+import { getConversations, deleteConversation, getUser, getUserUsage, logout, getUserProfile } from '../api';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -38,6 +38,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [userMenuPos, setUserMenuPos] = useState<{ bottom: number; left: number } | null>(null);
+  const [planLabel, setPlanLabel] = useState('Free plan');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -46,26 +48,19 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
 
   // Map labels to the correct custom icon
   const getIcon = (label: string, size: number) => {
+    const className = "dark:invert transition-[filter] duration-200";
     switch (label) {
-      case 'Chats': return <IconChatBubble size={size} />;
-      case 'Projects': return <IconProjects size={size} />;
-      case 'Artifacts': return <IconArtifactsExact size={size} />;
-      case 'Code': return <IconCode size={size} />;
-      default: return <IconChatBubble size={size} />;
+      case 'Chats': return <IconChatBubble size={size} className={className} />;
+      case 'Projects': return <IconProjects size={size} className={className} />;
+      case 'Artifacts': return <IconArtifactsExact size={size} className={className} />;
+      case 'Code': return <IconCode size={size} className={className} />;
+      default: return <IconChatBubble size={size} className={className} />;
     }
   };
 
   const handleNewChat = () => {
-    // 如果已经在首页，先触发回调再导航
-    if (location.pathname === '/' || location.pathname === '') {
-      if (onNewChatClick) onNewChatClick();
-      // 添加一个小的延迟确保状态更新
-      setTimeout(() => {
-        navigate('/');
-      }, 0);
-    } else {
-      navigate('/');
-    }
+    if (onNewChatClick) onNewChatClick();
+    navigate('/');
   };
 
   const updateTuner = (key: string, value: number) => {
@@ -77,6 +72,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
   useEffect(() => {
     setUserUser(getUser());
     fetchChats();
+    fetchPlan();
+    getUserProfile().then((p: any) => { if (p.role === 'admin' || p.role === 'superadmin') setIsAdmin(true); }).catch(() => { });
 
     // 监听标题更新事件
     const handleTitleUpdate = () => {
@@ -100,6 +97,25 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
       }
     } catch (e) {
       console.error("Failed to fetch chats", e);
+    }
+  };
+
+  const fetchPlan = async () => {
+    try {
+      const data = await getUserUsage();
+      if (data.plan && data.plan.name) {
+        const nameMap: Record<string, string> = {
+          '体验包': 'Trail plan',
+          '基础月卡': 'Pro plan',
+          '专业月卡': 'Max x5 plan',
+          '尊享月卡': 'Max x20 plan',
+        };
+        setPlanLabel(nameMap[data.plan.name] || data.plan.name);
+      } else {
+        setPlanLabel('Free plan');
+      }
+    } catch (e) {
+      // 获取失败保持默认
     }
   };
 
@@ -186,7 +202,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
     <>
       <div
         className={`
-          h-screen bg-claude-sidebar border-r border-claude-border flex-shrink-0 text-[#393939] antialiased flex flex-col transition-all duration-200 ease-in-out overflow-hidden relative
+          h-screen bg-claude-sidebar border-r border-claude-border flex-shrink-0 text-claude-text antialiased flex flex-col transition-all duration-200 ease-in-out overflow-hidden relative
         `}
         style={{
           width: isCollapsed ? '46px' : `${tunerConfig?.sidebarWidth || 280}px`
@@ -210,7 +226,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                 src={claudeImg}
                 alt="Claude"
                 style={{ height: '27px', width: 'auto' }}
-                className="object-contain"
+                className="object-contain dark:invert transition-[filter] duration-200"
               />
             </button>
           </div>
@@ -219,7 +235,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
           <button
             onClick={toggleSidebar}
             className={`
-                text-gray-500 hover:text-gray-700 hover:bg-black/5 rounded-lg transition-all duration-200 flex-shrink-0 absolute
+                text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-all duration-200 flex-shrink-0 absolute
                 ${isCollapsed
                 ? 'flex items-center justify-center p-1.5 rounded-md'
                 : 'p-1.5 rounded-md'
@@ -237,7 +253,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
               transform: 'none',
             }}
           >
-            <IconSidebarToggle size={tunerConfig?.toggleSize} className="text-[#666]" />
+            <IconSidebarToggle size={tunerConfig?.toggleSize} className="text-claude-textSecondary dark:invert transition-[filter] duration-200" />
           </button>
         </div>
 
@@ -253,7 +269,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
         >
           <button
             onClick={handleNewChat}
-            className="w-full flex items-center justify-start text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors group overflow-hidden whitespace-nowrap"
+            className="w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors group overflow-hidden whitespace-nowrap"
             style={{
               paddingTop: '2px',
               paddingBottom: '2px',
@@ -261,7 +277,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
               gap: '8px'
             }}
           >
-            <div className={`text-[#333] flex-shrink-0 flex items-center justify-center`}>
+            <div className={`text-claude-text flex-shrink-0 flex items-center justify-center`}>
               <IconPlusCircle size={27} />
             </div>
             <span
@@ -289,7 +305,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             {NAV_ITEMS.map((item) => (
               <button
                 key={item.label}
-                className="w-full flex items-center justify-start text-[#2D2D2D] hover:bg-black/5 rounded-lg transition-colors font-medium group overflow-hidden whitespace-nowrap"
+                className="w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors font-medium group overflow-hidden whitespace-nowrap"
                 style={{
                   paddingTop: '2px',
                   paddingBottom: '2px',
@@ -297,7 +313,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                   gap: '8px'
                 }}
               >
-                <div className={`text-gray-900 flex-shrink-0 transition-colors flex items-center justify-center`}>
+                <div className={`text-claude-text flex-shrink-0 transition-colors flex items-center justify-center`}>
                   {getIcon(item.label, 27)}
                 </div>
                 <span
@@ -312,7 +328,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
 
           {/* Recents Section Header - Fades out */}
           <div
-            className={`px-3 pb-1.5 text-[11px] font-medium text-[#747474] transition-opacity duration-200 ${isCollapsed ? 'opacity-0 hidden' : 'opacity-100'}`}
+            className={`px-3 pb-1.5 text-[11px] font-medium text-claude-textSecondary transition-opacity duration-200 ${isCollapsed ? 'opacity-0 hidden' : 'opacity-100'}`}
             style={{ marginTop: `${tunerConfig?.recentsMt || 0}px` }}
           >
             Recents
@@ -328,7 +344,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                   onClick={() => navigate(`/chat/${chat.id}`)}
                   className={`
                     relative group flex items-center w-full rounded-lg transition-colors cursor-pointer min-h-[32px]
-                    ${isActive || activeMenuIndex === index ? 'bg-black/5' : 'hover:bg-black/5'}
+                    ${isActive || activeMenuIndex === index ? 'bg-claude-hover' : 'hover:bg-claude-hover'}
                   `}
                   style={{
                     paddingTop: `${tunerConfig?.recentsItemPy || 6}px`,
@@ -340,7 +356,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                   {/* Chat Title */}
                   <div className="flex-1 min-w-0 pr-6">
                     <div
-                      className="text-[#393939] truncate leading-tight"
+                      className="text-claude-text truncate leading-tight"
                       style={{ fontSize: `${tunerConfig?.recentsFontSize || 13}px` }}
                     >
                       {chat.title || 'New Chat'}
@@ -351,7 +367,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                   <button
                     onClick={(e) => handleMenuClick(e, index)}
                     className={`
-                      absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-[#747474] hover:text-[#393939] transition-all
+                      absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-claude-textSecondary hover:text-claude-text transition-all
                       ${activeMenuIndex === index ? 'opacity-100 block' : 'opacity-0 group-hover:opacity-100 hidden group-hover:block'}
                     `}
                   >
@@ -383,13 +399,13 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
               }
               setShowUserMenu(!showUserMenu);
             }}
-            className={`w-full flex items-center gap-2 hover:bg-black/5 rounded-lg transition-all duration-200 overflow-hidden whitespace-nowrap`}
+            className={`w-full flex items-center gap-2 hover:bg-claude-hover rounded-lg transition-all duration-200 overflow-hidden whitespace-nowrap`}
             style={{
               padding: isCollapsed ? '8px 0px 8px 9px' : '8px'
             }}
           >
             <div
-              className="rounded-full bg-claude-accent text-white flex items-center justify-center text-xs font-medium flex-shrink-0"
+              className="rounded-full bg-claude-avatar text-claude-avatarText flex items-center justify-center text-xs font-medium flex-shrink-0"
               style={{ width: `${tunerConfig?.userAvatarSize || 28}px`, height: `${tunerConfig?.userAvatarSize || 28}px` }}
             >
               {userUser?.nickname?.charAt(0).toUpperCase() || 'U'}
@@ -397,52 +413,61 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             <div className={`flex items-center justify-between w-full transition-opacity duration-200 ${isCollapsed ? 'opacity-0' : 'opacity-100'}`}>
               <div className="text-left overflow-hidden">
                 <div
-                  className="font-medium text-[#333] leading-none"
+                  className="font-medium text-claude-text leading-none"
                   style={{ fontSize: `${tunerConfig?.userNameSize || 13}px` }}
                 >
                   {userUser?.nickname || 'User'}
                 </div>
-                <div className="text-[11px] text-gray-500 mt-0.5 leading-none">Max plan</div>
+                <div className="text-[11px] text-claude-textSecondary mt-0.5 leading-none">{planLabel}</div>
               </div>
-              <ChevronUp size={16} className="text-gray-400" />
+              <ChevronUp size={16} className="text-claude-textSecondary" />
             </div>
           </button>
 
           {/* User Menu Popup */}
           {showUserMenu && userMenuPos && (
-            <div ref={userMenuRef} className="fixed w-[220px] bg-white border border-[#E5E5E5] rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-[60]"
+            <div ref={userMenuRef} className="fixed w-[220px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-[60]"
               style={{ bottom: `${userMenuPos.bottom}px`, left: `${userMenuPos.left}px` }}
             >
               {/* User info header */}
-              <div className="px-4 py-2.5 border-b border-[#E8E7E3]">
-                <div className="text-[13px] font-medium text-[#333]">{userUser?.nickname || 'User'}</div>
-                <div className="text-[12px] text-[#747474] mt-0.5">{userUser?.email || ''}</div>
+              <div className="px-4 py-2.5 border-b border-claude-border">
+                <div className="text-[13px] font-medium text-claude-text">{userUser?.nickname || 'User'}</div>
+                <div className="text-[12px] text-claude-textSecondary mt-0.5">{userUser?.email || ''}</div>
               </div>
               {/* Menu items */}
               <div className="py-1">
                 <button
                   onClick={() => { setShowUserMenu(false); onOpenSettings?.(); }}
-                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#393939] hover:bg-[#F5F4F1] transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
                 >
-                  <Settings size={16} className="text-[#525252]" />
+                  <Settings size={16} className="text-claude-textSecondary" />
                   Settings
                 </button>
                 <button
-                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#393939] hover:bg-[#F5F4F1] transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
                   onClick={() => { setShowUserMenu(false); onOpenUpgrade?.(); }}
                 >
-                  <Gem size={16} className="text-[#525252]" />
-                  Upgrade Plan
+                  <CreditCard size={16} className="text-claude-textSecondary" />
+                  Billing
                 </button>
+                {isAdmin && (
+                  <button
+                    className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                    onClick={() => { setShowUserMenu(false); navigate('/admin'); }}
+                  >
+                    <Shield size={16} className="text-claude-textSecondary" />
+                    Admin Panel
+                  </button>
+                )}
                 <button
-                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#999] cursor-not-allowed"
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-textSecondary cursor-not-allowed"
                   disabled
                 >
                   <HelpCircle size={16} className="text-[#BBB]" />
                   Get Help
                 </button>
               </div>
-              <div className="h-[1px] bg-[#E8E7E3] mx-3" />
+              <div className="h-[1px] bg-claude-border mx-3" />
               <div className="py-1">
                 <button
                   onClick={() => { setShowUserMenu(false); setShowLogoutConfirm(true); }}
@@ -462,24 +487,24 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
         activeMenuIndex !== null && menuPosition && chats[activeMenuIndex] && (
           <div
             ref={menuRef}
-            className="fixed z-50 bg-white border border-[#E5E5E5] rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.08)] py-1.5 flex flex-col w-[200px]"
+            className="fixed z-50 bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_12px_rgba(0,0,0,0.08)] py-1.5 flex flex-col w-[200px]"
             style={{
               top: `${menuPosition.top}px`,
               left: `${menuPosition.left}px`
             }}
           >
-            <button className="flex items-center gap-3 px-3 py-2 hover:bg-[#F5F4F1] text-left w-full transition-colors group">
-              <IconStarOutline size={16} className="text-[#525252] group-hover:text-[#393939]" />
-              <span className="text-[13px] text-[#393939]">Star</span>
+            <button className="flex items-center gap-3 px-3 py-2 hover:bg-claude-hover text-left w-full transition-colors group">
+              <IconStarOutline size={16} className="text-claude-textSecondary group-hover:text-claude-text" />
+              <span className="text-[13px] text-claude-text">Star</span>
             </button>
-            <button className="flex items-center gap-3 px-3 py-2 hover:bg-[#F5F4F1] text-left w-full transition-colors group">
-              <IconPencil size={16} className="text-[#525252] group-hover:text-[#393939]" />
-              <span className="text-[13px] text-[#393939]">Rename</span>
+            <button className="flex items-center gap-3 px-3 py-2 hover:bg-claude-hover text-left w-full transition-colors group">
+              <IconPencil size={16} className="text-claude-textSecondary group-hover:text-claude-text" />
+              <span className="text-[13px] text-claude-text">Rename</span>
             </button>
-            <div className="h-[1px] bg-[#E8E7E3] my-1 mx-3" />
+            <div className="h-[1px] bg-claude-border my-1 mx-3" />
             <button
               onClick={(e) => handleDeleteChat(chats[activeMenuIndex].id, e)}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-[#F5F4F1] text-left w-full transition-colors group"
+              className="flex items-center gap-3 px-3 py-2 hover:bg-claude-hover text-left w-full transition-colors group"
             >
               <IconTrash size={16} className="text-[#B9382C]" />
               <span className="text-[13px] text-[#B9382C]">Delete</span>
@@ -492,13 +517,14 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-xl w-[360px] p-6">
-            <h3 className="text-[16px] font-semibold text-[#333] mb-2">确定退出登录？</h3>
-            <p className="text-[14px] text-[#666] mb-6">此操作将清除您的登录状态。</p>
+          <div className="bg-claude-input rounded-2xl shadow-xl w-[360px] p-6">
+            <h3 className="text-[16px] font-semibold text-claude-text mb-2">确定退出登录？</h3>
+            <p className="text-[14px] text-claude-textSecondary mb-6">此操作将清除您的登录状态。</p>
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowLogoutConfirm(false)}
-                className="px-4 py-2 text-[13px] text-[#393939] bg-[#F5F4F1] hover:bg-[#ECEAE6] rounded-lg transition-colors"
+                className="px-4 py-2 text-[13px] text-claude-text bg-claude-btn-hover hover:bg-claude-hover rounded-lg transition-colors"
+              // Using btn-hover for light gray bg? 
               >
                 取消
               </button>
