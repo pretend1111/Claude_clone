@@ -287,16 +287,25 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const [showEntranceAnimation, setShowEntranceAnimation] = useState(false);
   
   // Temporary Font Tuner State
-  const [tempFontSize, setTempFontSize] = useState(46);
-  const [tempFontWeight, setTempFontWeight] = useState(500);
-  const [tempLetterSpacing, setTempLetterSpacing] = useState(-0.05);
-  const [tempTextStroke, setTempTextStroke] = useState(0);
-  const [tempFontFamily, setTempFontFamily] = useState('Optima');
+  const [tempFontSize, setTempFontSize] = useState(() => Number(localStorage.getItem('font_tuner_size')) || 46);
+  const [tempFontWeight, setTempFontWeight] = useState(() => Number(localStorage.getItem('font_tuner_weight')) || 500);
+  const [tempLetterSpacing, setTempLetterSpacing] = useState(() => Number(localStorage.getItem('font_tuner_spacing')) || -0.05);
+  const [tempTextStroke, setTempTextStroke] = useState(() => Number(localStorage.getItem('font_tuner_stroke')) || 0);
+  const [tempFontFamily, setTempFontFamily] = useState(() => localStorage.getItem('font_tuner_family') || 'Optima');
   const [showFontTuner, setShowFontTuner] = useState(false);
 
-  // Initialize from tunerConfig if available
+  // Persist Font Tuner State
   useEffect(() => {
-    if (tunerConfig?.welcomeSize) {
+    localStorage.setItem('font_tuner_size', String(tempFontSize));
+    localStorage.setItem('font_tuner_weight', String(tempFontWeight));
+    localStorage.setItem('font_tuner_spacing', String(tempLetterSpacing));
+    localStorage.setItem('font_tuner_stroke', String(tempTextStroke));
+    localStorage.setItem('font_tuner_family', tempFontFamily);
+  }, [tempFontSize, tempFontWeight, tempLetterSpacing, tempTextStroke, tempFontFamily]);
+
+  // Initialize from tunerConfig if available (only if not in localStorage)
+  useEffect(() => {
+    if (tunerConfig?.welcomeSize && !localStorage.getItem('font_tuner_size')) {
       setTempFontSize(tunerConfig.welcomeSize);
     }
   }, [tunerConfig]);

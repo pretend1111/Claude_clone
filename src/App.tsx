@@ -209,7 +209,7 @@ const Layout = () => {
   // Layout Tuner State
   const [tunerConfig, setTunerConfig] = useState({
     sidebarWidth: 288, // tuned value
-    recentsMt: 36,
+    recentsMt: 24,
     profilePy: 10,
     profilePx: 12,
     mainContentWidth: 773, // tuned value

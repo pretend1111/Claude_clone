@@ -44,6 +44,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
   const [planLabel, setPlanLabel] = useState('Free plan');
   const [isAdmin, setIsAdmin] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [isRecentsCollapsed, setIsRecentsCollapsed] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -367,16 +368,29 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             ))}
           </nav>
 
-          {/* Recents Section Header - Fades out */}
+          {/* Recents Section Header */}
           <div
-            className={`px-3 pb-1.5 text-[11px] font-medium text-claude-textSecondary transition-opacity duration-200 ${isCollapsed ? 'opacity-0 hidden' : 'opacity-100'}`}
-            style={{ marginTop: `${tunerConfig?.recentsMt || 0}px` }}
+            className={`group flex items-center gap-3 px-3 pb-2 transition-opacity duration-200 select-none ${isCollapsed ? 'opacity-0 hidden' : 'opacity-100'}`}
+            style={{ 
+              marginTop: `${tunerConfig?.recentsMt || 0}px`,
+              paddingLeft: `${tunerConfig?.recentsPl || 12}px`,
+              paddingRight: '12px'
+            }}
           >
-            Recents
+            <span className="text-[13px] font-medium text-claude-textSecondary">Recents</span>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsRecentsCollapsed(!isRecentsCollapsed);
+              }}
+              className="text-[13px] font-medium text-claude-textSecondary opacity-0 group-hover:opacity-60 hover:opacity-100 transition-opacity cursor-pointer outline-none"
+            >
+              {isRecentsCollapsed ? 'Show' : 'Hide'}
+            </button>
           </div>
 
-          {/* Recents List - Fades out */}
-          <div className={`space-y-0.5 pb-2 transition-opacity duration-200 ${isCollapsed ? 'opacity-0 hidden' : 'opacity-100'}`}>
+          {/* Recents List */}
+          <div className={`space-y-0.5 pb-2 transition-all duration-200 ${isCollapsed || isRecentsCollapsed ? 'opacity-0 hidden h-0 overflow-hidden' : 'opacity-100'}`}>
             {chats.map((chat, index) => {
               const isActive = location.pathname === `/chat/${chat.id}`;
               return (
