@@ -289,7 +289,7 @@ export async function sendMessage(
   onError: (err: string) => void,
   onThinking?: (thinking: string, full: string) => void,
   onSystem?: (event: string, message: string, data: any) => void,
-  onCitations?: (citations: Array<{ url: string; title: string; cited_text?: string }>) => void,
+  onCitations?: (citations: Array<{ url: string; title: string; cited_text?: string }>, query?: string) => void,
   onDocument?: (document: { id: string; title: string; filename: string; url: string; content?: string; format?: 'markdown' | 'docx' | 'pptx'; slides?: Array<{ title: string; content: string; notes?: string }> }) => void,
   signal?: AbortSignal
 ) {
@@ -358,10 +358,17 @@ export async function sendMessage(
             continue;
           }
 
+          if (parsed.type === 'thinking_summary' && parsed.summary) {
+            if (onSystem) {
+              onSystem('thinking_summary', parsed.summary, parsed);
+            }
+            continue;
+          }
+
           // 处理搜索来源事件
           if (parsed.type === 'search_sources') {
             if (onCitations && Array.isArray(parsed.sources)) {
-              onCitations(parsed.sources);
+              onCitations(parsed.sources, parsed.query);
             }
             continue;
           }

@@ -17,6 +17,7 @@ export interface CitationSource {
 interface MarkdownRendererProps {
   content: string;
   citations?: CitationSource[];
+  showSourcesList?: boolean;
 }
 
 /**
@@ -243,7 +244,7 @@ const CodeBlock: React.FC<{ language: string; code: string; className?: string }
   );
 };
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations }) => {
+const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations, showSourcesList = false }) => {
   const processed = normalizeMathBlocks(stripCiteTags(content));
   const sources = citations ? deduplicateSources(citations) : [];
   const hasCitations = sources.length > 0;
@@ -303,14 +304,8 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations 
       >
         {processed}
       </ReactMarkdown>
-      {hasCitations && (
-        <div className="flex flex-wrap gap-1 mt-2 mb-1">
-          {sources.map((source, i) => (
-            <CitationBadge key={source.url} index={i + 1} source={source} />
-          ))}
-        </div>
-      )}
-      {hasCitations && <SourcesList sources={sources} />}
+
+      {hasCitations && showSourcesList && <SourcesList sources={sources} />}
     </div>
   );
 };

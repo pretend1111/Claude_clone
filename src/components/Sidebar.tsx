@@ -13,9 +13,12 @@ import {
   IconTrash
 } from './Icons';
 import claudeImg from '../assets/icons/claude.png';
+import searchIconImg from '../assets/icons/search-icon.png';
 import { NAV_ITEMS } from '../constants';
-import { ChevronUp, Settings, HelpCircle, LogOut, Shield, CreditCard } from 'lucide-react';
+import { ChevronUp, Settings, HelpCircle, LogOut, Shield, CreditCard, Search } from 'lucide-react';
 import { getConversations, deleteConversation, getUser, getUserUsage, logout, getUserProfile } from '../api';
+
+import SearchModal from './SearchModal';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -40,6 +43,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
   const [userMenuPos, setUserMenuPos] = useState<{ bottom: number; left: number } | null>(null);
   const [planLabel, setPlanLabel] = useState('Free plan');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -289,6 +293,43 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
           </button>
         </div>
 
+        {/* Search - Fixed */}
+        <div
+          className="flex-shrink-0"
+          style={{
+            marginTop: '2px',
+            paddingLeft: '9px',
+            paddingRight: '9px',
+            marginBottom: '16px'
+          }}
+        >
+          <button
+            onClick={() => setShowSearch(true)}
+            className="w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors group overflow-hidden whitespace-nowrap"
+            style={{
+              paddingTop: '2px',
+              paddingBottom: '2px',
+              paddingLeft: '0px',
+              gap: '8px'
+            }}
+          >
+            <div className={`text-claude-text flex-shrink-0 flex items-center justify-center`} style={{ width: '27px', height: '27px' }}>
+              <img
+                src={searchIconImg}
+                alt="Search"
+                style={{ width: '24px', height: '24px' }}
+                className="object-contain dark:invert transition-[filter] duration-200 opacity-60"
+              />
+            </div>
+            <span
+              className={`font-medium leading-none mt-0.5 transition-opacity duration-200 text-left ${isCollapsed ? 'opacity-0 w-0 hidden' : 'opacity-100 block'}`}
+              style={{ fontSize: '15px' }}
+            >
+              Search
+            </span>
+          </button>
+        </div>
+
         {/* Scrollable Area containing Nav and Recents */}
         <div
           ref={scrollRef}
@@ -513,6 +554,12 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
         )
       }
       {/* Fixed Layout Tuner (Removed) */}
+
+      <SearchModal 
+        isOpen={showSearch} 
+        onClose={() => setShowSearch(false)} 
+        chats={chats} 
+      />
 
       {/* Logout Confirmation Modal */}
       {showLogoutConfirm && (

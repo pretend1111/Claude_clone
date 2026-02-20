@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square, Paperclip, ListCollapse } from 'lucide-react';
+import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square, Paperclip, ListCollapse, Globe, Clock, Ghost } from 'lucide-react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
@@ -10,6 +10,7 @@ import FileUploadPreview, { PendingFile } from './FileUploadPreview';
 import MessageAttachments from './MessageAttachments';
 import DocumentCard, { DocumentInfo } from './DocumentCard';
 import { copyToClipboard } from '../utils/clipboard';
+import SearchProcess from './SearchProcess';
 
 // 时间戳格式化
 function formatMessageTime(dateStr: string): string {
@@ -72,6 +73,20 @@ const MessageList = React.memo<MessageListProps>(({
 }) => {
   return (
     <>
+      <style>{`
+        @keyframes shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        .animate-shimmer-text {
+          background: linear-gradient(90deg, #6b7280 45%, #ffffff 50%, #6b7280 55%);
+          background-size: 200% 100%;
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          animation: shimmer 4s linear infinite;
+        }
+      `}</style>
       {messages.map((msg: any, idx: number) => (
         <div key={idx} className="mb-6 group">
           {msg.is_summary === 1 && (
@@ -84,7 +99,7 @@ const MessageList = React.memo<MessageListProps>(({
           {msg.role === 'user' ? (
             editingMessageIdx === idx ? (
               <div className="w-full">
-                <div className="bg-claude-btnHover rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed font-sans">
+                <div className="bg-[#F0EEE7] dark:bg-claude-btnHover rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed font-sans">
                   <textarea
                     className="w-full bg-transparent text-claude-text outline-none resize-none font-sans text-[16px] leading-relaxed"
                     value={editingContent}
@@ -123,7 +138,7 @@ const MessageList = React.memo<MessageListProps>(({
                 )}
                 <div className="max-w-[85%] w-fit relative">
                   <div
-                    className="bg-claude-btnHover text-claude-text px-5 py-2.5 text-[16px] leading-relaxed font-sans whitespace-pre-wrap break-words relative overflow-hidden"
+                    className="bg-[#F0EEE7] dark:bg-claude-btnHover text-claude-text px-5 py-2.5 text-[16px] leading-relaxed font-sans whitespace-pre-wrap break-words relative overflow-hidden"
                     style={{
                       maxHeight: expandedMessages.has(idx) ? 'none' : '300px',
                       borderRadius: ((() => {
@@ -139,7 +154,7 @@ const MessageList = React.memo<MessageListProps>(({
                       const el = messageContentRefs.current.get(idx);
                       return el && el.scrollHeight > 300;
                     })() && (
-                        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-claude-btnHover to-transparent pointer-events-none" />
+                        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#F0EEE7] dark:from-claude-btnHover to-transparent pointer-events-none" />
                       )}
                   </div>
                   {(() => {
@@ -147,7 +162,7 @@ const MessageList = React.memo<MessageListProps>(({
                     const isOverflow = el && el.scrollHeight > 300;
                     if (!isOverflow) return null;
                     return (
-                      <div className="bg-claude-btnHover rounded-b-2xl px-5 pb-3 pt-1 -mt-[1px] relative" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
+                      <div className="bg-[#F0EEE7] dark:bg-claude-btnHover rounded-b-2xl px-5 pb-3 pt-1 -mt-[1px] relative" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
                         <button onClick={() => onToggleExpand(idx)} className="text-[13px] text-claude-textSecondary hover:text-claude-text transition-colors">
                           {expandedMessages.has(idx) ? 'Show less' : 'Show more'}
                         </button>
@@ -172,48 +187,63 @@ const MessageList = React.memo<MessageListProps>(({
           ) : (
             <div className="px-1 text-claude-text text-[16px] leading-relaxed font-sans mt-2">
               {msg.thinking && (
-                <div className="mb-3">
-                  {msg.isThinking ? (
-                    <div className="flex items-center gap-1.5 select-none">
-                      <ClaudeLogo autoAnimate style={{ width: '28px', height: '28px', display: 'inline-block', flexShrink: 0 }} />
-                      <span className="text-[13px] font-medium text-claude-textSecondary truncate">
-                        {(() => {
-                          const text = (msg.thinking || '').trim();
-                          const lines = text.split('\n').filter((l: string) => l.trim());
-                          const last = lines[lines.length - 1] || '';
-                          const summary = last.length > 40 ? last.slice(0, 40) + '...' : last;
-                          return summary || 'Thinking...';
-                        })()}
-                      </span>
-                    </div>
-                  ) : (
-                    <div>
-                      <div
-                        className="flex items-center gap-1.5 cursor-pointer select-none group/think"
-                        onClick={() => {
-                          onSetMessages(prev => {
-                            const newMsgs = [...prev];
-                            newMsgs[idx].isThinkingExpanded = !newMsgs[idx].isThinkingExpanded;
-                            return newMsgs;
-                          });
-                        }}
-                      >
-                        <ChevronDown size={14} className={`text-claude-textSecondary transform transition-transform flex-shrink-0 ${msg.isThinkingExpanded ? '' : '-rotate-90'}`} />
-                        <span className="text-[13px] font-medium text-claude-textSecondary group-hover/think:text-claude-text transition-colors">Thinking</span>
+                <div className="mb-4">
+                  <div
+                    className="flex items-center gap-2 cursor-pointer select-none group/think text-claude-textSecondary hover:text-claude-text transition-colors"
+                    onClick={() => {
+                      onSetMessages(prev =>
+                        prev.map((m, i) =>
+                          i === idx ? { ...m, isThinkingExpanded: !m.isThinkingExpanded } : m
+                        )
+                      );
+                    }}
+                  >
+                    {msg.isThinking && (
+                      <ClaudeLogo autoAnimate style={{ width: '30px', height: '30px' }} />
+                    )}
+                    <span className={`text-[14px] ${msg.isThinking ? 'animate-shimmer-text' : 'text-claude-text'}`}>
+                      {(() => {
+                        if (msg.thinking_summary) return msg.thinking_summary;
+                        const text = (msg.thinking || '').trim();
+                        const lines = text.split('\n').filter((l: string) => l.trim());
+                        const last = lines[lines.length - 1] || '';
+                        const summary = last.length > 40 ? last.slice(0, 40) + '...' : last;
+                        return summary || 'Thinking...';
+                      })()}
+                    </span>
+                    <ChevronDown size={14} className={`transform transition-transform duration-200 ${msg.isThinkingExpanded ? 'rotate-180' : ''}`} />
+                  </div>
+                  
+                  {msg.isThinkingExpanded && (
+                    <div className="mt-2 ml-1 pl-4 border-l-2 border-claude-border">
+                      <div className="flex gap-3">
+                        <div className="text-claude-textSecondary text-[14px] leading-relaxed whitespace-pre-wrap">
+                          {msg.thinking}
+                        </div>
                       </div>
-                      {msg.isThinkingExpanded && (
-                        <div className="mt-2 ml-5 pl-3 border-l-2 border-claude-border text-claude-textSecondary text-[14px] leading-relaxed whitespace-pre-wrap">{msg.thinking}</div>
+                      {!msg.isThinking && (
+                        <div className="flex items-center gap-2 mt-2 text-claude-textSecondary">
+                          <Check size={16} />
+                          <span className="text-[14px]">Done</span>
+                        </div>
                       )}
                     </div>
                   )}
                 </div>
               )}
-              {msg.searchStatus && !msg.content && (
-                <div className="flex items-center gap-2 text-[13px] text-claude-textSecondary mb-2">
-                  <span className="inline-block w-3 h-3 border-2 border-[#D97757] border-t-transparent rounded-full animate-spin"></span>
-                  {msg.searchStatus}
+              {msg.searchStatus && (!msg.searchLogs || msg.searchLogs.length === 0) && (
+                <div className="flex items-center justify-center gap-2 text-[15px] font-medium mb-4 w-full">
+                  <Globe size={18} className="text-[#6b7280]" />
+                  <span className="animate-shimmer-text">
+                    Searching the web
+                  </span>
                 </div>
               )}
+              
+              {msg.searchLogs && msg.searchLogs.length > 0 && (
+                <SearchProcess logs={msg.searchLogs} isThinking={msg.isThinking} isDone={(msg.content || '').length > (msg._contentLenBeforeSearch || 0)} />
+              )}
+
               <MarkdownRenderer content={msg.content} citations={msg.citations} />
               {msg.document && (
                 <div className="mt-2 mb-1">
@@ -225,7 +255,7 @@ const MessageList = React.memo<MessageListProps>(({
                   <ClaudeLogo breathe style={{ width: '40px', height: '40px', display: 'inline-block' }} />
                 </span>
               )}
-              {loading && idx === messages.length - 1 && (msg.content || msg.searchStatus) && (
+              {loading && idx === messages.length - 1 && !msg.isThinking && (msg.content || (msg.searchStatus && msg.content)) && (
                 <span className="inline-block ml-1 align-middle" style={{ verticalAlign: 'middle' }}>
                   <ClaudeLogo autoAnimate style={{ width: '40px', height: '40px', display: 'inline-block' }} />
                 </span>
@@ -255,8 +285,59 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const location = useLocation();
   const [localId, setLocalId] = useState<string | null>(null);
   const [showEntranceAnimation, setShowEntranceAnimation] = useState(false);
+  
+  // Temporary Font Tuner State
+  const [tempFontSize, setTempFontSize] = useState(46);
+  const [tempFontWeight, setTempFontWeight] = useState(500);
+  const [tempLetterSpacing, setTempLetterSpacing] = useState(-0.05);
+  const [tempTextStroke, setTempTextStroke] = useState(0);
+  const [tempFontFamily, setTempFontFamily] = useState('Optima');
+  const [showFontTuner, setShowFontTuner] = useState(false);
 
+  // Initialize from tunerConfig if available
+  useEffect(() => {
+    if (tunerConfig?.welcomeSize) {
+      setTempFontSize(tunerConfig.welcomeSize);
+    }
+  }, [tunerConfig]);
 
+  const FONT_FAMILIES = [
+    'Spectral', // Default
+    'Söhne',
+    'Söhne Mono',
+    'Inter',
+    'system-ui',
+    '-apple-system',
+    'BlinkMacSystemFont',
+    'Segoe UI',
+    'Roboto',
+    'Helvetica Neue',
+    'Arial',
+    'sans-serif',
+    'Georgia',
+    'Times New Roman',
+    'serif',
+    'Courier New',
+    'Courier',
+    'monospace',
+    'Verdana',
+    'Tahoma',
+    'Trebuchet MS',
+    'Impact',
+    'Gill Sans',
+    'Optima',
+    'American Typewriter',
+    'Didot',
+    'Copperplate',
+    'Papyrus',
+    'Brush Script MT',
+    'Lucida Console',
+    'Monaco',
+    'Bradley Hand',
+    'Luminari',
+    'Chalkboard',
+    'Comic Sans MS'
+  ];
 
   // Use localId if we just created a chat, effectively overriding the lack of URL param until next true navigation
   const activeId = id || localId || null;
@@ -327,6 +408,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  const userScrolledUpRef = useRef(false);
   const [scrollbarWidth, setScrollbarWidth] = useState(0);
   const [expandedMessages, setExpandedMessages] = useState<Set<number>>(new Set());
   const [copiedMessageIdx, setCopiedMessageIdx] = useState<number | null>(null);
@@ -379,6 +461,22 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     observer.observe(el);
     return () => observer.disconnect();
   }, [messages]);
+
+  // 用户滚轮向上时，立刻中止自动滚动
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        userScrolledUpRef.current = true;
+        isAtBottomRef.current = false;
+        // 取消正在进行的 smooth scroll 动画
+        el.scrollTo({ top: el.scrollTop });
+      }
+    };
+    el.addEventListener('wheel', handleWheel, { passive: true });
+    return () => el.removeEventListener('wheel', handleWheel);
+  }, []);
 
   // 点击外部关闭加号菜单
   useEffect(() => {
@@ -476,11 +574,14 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const handleScroll = () => {
     if (scrollContainerRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-      // Using 50px threshold.
-      // Note: scrollHeight - scrollTop === clientHeight when fully parsed.
-      // Use small threshold to allow for minor discrepancies.
       const isBottom = Math.abs(scrollHeight - clientHeight - scrollTop) < 50;
-      isAtBottomRef.current = isBottom;
+      if (isBottom && userScrolledUpRef.current) {
+        // 用户自己滚回了底部，重新启用自动滚动
+        userScrolledUpRef.current = false;
+      }
+      if (!userScrolledUpRef.current) {
+        isAtBottomRef.current = isBottom;
+      }
     }
   };
 
@@ -698,19 +799,53 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
             const lastMsg = newMsgs[newMsgs.length - 1];
             if (lastMsg.role === 'assistant') {
               lastMsg.searchStatus = message;
+              lastMsg._contentLenBeforeSearch = (lastMsg.content || '').length;
+            }
+            return newMsgs;
+          });
+        }
+        // Handle thinking summary
+        if (event === 'thinking_summary' && message) {
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const lastMsg = newMsgs[newMsgs.length - 1];
+            if (lastMsg.role === 'assistant') {
+              lastMsg.thinking_summary = message;
             }
             return newMsgs;
           });
         }
       },
-      (sources) => {
+      (sources, query) => {
         // Handle search_sources — collect citation sources
         setMessages(prev => {
           const newMsgs = [...prev];
           const lastMsg = newMsgs[newMsgs.length - 1];
           if (lastMsg.role === 'assistant') {
             const existing = lastMsg.citations || [];
-            lastMsg.citations = [...existing, ...sources];
+            
+            // 去重合并
+            const existingUrls = new Set(existing.map((s: any) => s.url));
+            const newSources = sources.filter((s: any) => !existingUrls.has(s.url));
+            lastMsg.citations = [...existing, ...newSources];
+            
+            if (query) {
+              const logs = lastMsg.searchLogs || [];
+              // 检查是否已存在相同的 query
+              const existingLogIndex = logs.findIndex((log: any) => log.query === query);
+              if (existingLogIndex !== -1) {
+                // 更新现有 log 的 results
+                const existingLog = logs[existingLogIndex];
+                const currentResults = existingLog.results || [];
+                const currentUrls = new Set(currentResults.map((r: any) => r.url));
+                const uniqueNewResults = sources.filter((s: any) => !currentUrls.has(s.url));
+                existingLog.results = [...currentResults, ...uniqueNewResults];
+              } else {
+                // 添加新 log
+                logs.push({ query, results: sources });
+              }
+              lastMsg.searchLogs = logs;
+            }
           }
           return newMsgs;
         });
@@ -849,7 +984,18 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           return newMsgs;
         });
       },
-      undefined,
+      (event, message) => {
+        if (event === 'thinking_summary' && message) {
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const lastMsg = newMsgs[newMsgs.length - 1];
+            if (lastMsg.role === 'assistant') {
+              lastMsg.thinking_summary = message;
+            }
+            return newMsgs;
+          });
+        }
+      },
       undefined,
       undefined,
       controller.signal
@@ -954,7 +1100,18 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           return newMsgs;
         });
       },
-      undefined,
+      (event, message) => {
+        if (event === 'thinking_summary' && message) {
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const lastMsg = newMsgs[newMsgs.length - 1];
+            if (lastMsg.role === 'assistant') {
+              lastMsg.thinking_summary = message;
+            }
+            return newMsgs;
+          });
+        }
+      },
       undefined,
       undefined,
       controller.signal
@@ -1077,6 +1234,63 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   if (!activeId && messages.length === 0) {
     return (
       <div className={`flex-1 bg-claude-bg h-screen flex flex-col relative overflow-hidden text-claude-text ${showEntranceAnimation ? 'animate-slide-in' : ''}`}>
+        
+        {/* Font Tuner Toggle Button */}
+        <button
+          onClick={() => setShowFontTuner(prev => !prev)}
+          className="fixed top-4 right-4 z-50 p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
+          title="Toggle Font Tuner"
+        >
+          <Ghost size={20} />
+        </button>
+
+        {/* Font Tuner (Debug) */}
+        {showFontTuner && (
+          <div className="fixed top-16 right-6 z-50 w-64 bg-white/95 dark:bg-gray-800/95 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl backdrop-blur-md p-5 transition-all animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Font Tuner</span>
+              </div>
+              <button 
+                onClick={() => setShowFontTuner(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Font Family */}
+              <div 
+                className="group relative bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl p-3 cursor-ns-resize select-none transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
+                onWheel={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const delta = e.deltaY > 0 ? 1 : -1;
+                  setTempFontFamily(prev => {
+                    const idx = FONT_FAMILIES.indexOf(prev);
+                    const nextIdx = (idx + delta + FONT_FAMILIES.length) % FONT_FAMILIES.length;
+                    return FONT_FAMILIES[nextIdx];
+                  });
+                }}
+              >
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide group-hover:text-orange-500 transition-colors">Font</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-gray-400 opacity-0 group-hover:opacity-60 transition-opacity">Scroll</span>
+                    <ArrowUp size={12} className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:-translate-y-0.5" />
+                  </div>
+                </div>
+                <div className="text-base font-medium text-claude-text truncate" title={tempFontFamily}>
+                  {tempFontFamily}
+                </div>
+              </div>
+
+              {/* Other controls hidden as requested */}
+            </div>
+          </div>
+        )}
 
 
         {/* Centered Content */}
@@ -1097,12 +1311,13 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
               <ClaudeLogo />
             </div>
             <h1
-              className="text-claude-text tracking-tight leading-none pt-1"
+              className="text-claude-text tracking-tight leading-none pt-1 transition-all duration-100 ease-out whitespace-nowrap"
               style={{
-                fontFamily: 'Spectral',
-                fontSize: `${tunerConfig?.welcomeSize || 32}px`,
-                fontWeight: 500,
-                WebkitTextStroke: '0.5px currentColor',
+                fontFamily: tempFontFamily,
+                fontSize: `${tempFontSize}px`,
+                fontWeight: tempFontWeight,
+                letterSpacing: `${tempLetterSpacing}em`,
+                WebkitTextStroke: `${tempTextStroke}px currentColor`,
               }}
             >
               {welcomeGreeting}

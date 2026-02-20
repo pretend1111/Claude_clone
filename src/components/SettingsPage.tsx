@@ -133,7 +133,7 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
 
   const MODEL_BASES = [
     { base: 'claude-opus-4-6', label: 'Opus 4.6' },
-    { base: 'claude-sonnet-4-5-20250929', label: 'Sonnet 4.5' },
+    { base: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
     { base: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
   ];
 
@@ -729,7 +729,7 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
               <label className="block text-[13px] font-medium text-claude-textSecondary mb-2">聊天字体</label>
               <div className="flex gap-3">
                 {([
-                  { value: 'default', label: '默认', sample: 'Aa', font: 'font-serif-claude' },
+                  { value: 'default', label: '默认', sample: 'Aa', font: 'font-sans' },
                   { value: 'sans', label: 'Sans', sample: 'Aa', font: 'font-sans' },
                   { value: 'system', label: '系统', sample: 'Aa', font: 'font-mono' }, // approximations for preview
                   { value: 'dyslexic', label: '阅读障碍', sample: 'Aa', font: 'font-serif' },
