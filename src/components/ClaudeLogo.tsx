@@ -177,7 +177,7 @@ const ClaudeLogo = ({ className = '', style, onClick, autoAnimate = false, breat
         mouseX = centerX + Math.cos(slowRotation) * breatheRadius;
         mouseY = centerY + Math.sin(slowRotation) * breatheRadius;
       } else if (autoAnimate) {
-        autoAnimateAngle.current += 0.105; // 转圈速度
+        autoAnimateAngle.current += 0.0525; // 转圈速度（慢一倍）
         const orbitRadius = SETTINGS.interactionRadius * (width / 250) * 0.55;
         mouseX = centerX + Math.cos(autoAnimateAngle.current) * orbitRadius;
         mouseY = centerY + Math.sin(autoAnimateAngle.current) * orbitRadius;

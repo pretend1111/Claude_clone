@@ -3,7 +3,7 @@ import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square,
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
-import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, uploadFile, deleteAttachment, compactConversation, getUserUsage } from '../api';
+import { getConversation, sendMessage, createConversation, getUser, updateConversation, deleteMessagesFrom, uploadFile, deleteAttachment, compactConversation, getUserUsage, getAttachmentUrl, getGenerationStatus, stopGeneration } from '../api';
 import MarkdownRenderer from './MarkdownRenderer';
 import ModelSelector from './ModelSelector';
 import FileUploadPreview, { PendingFile } from './FileUploadPreview';
@@ -11,6 +11,8 @@ import MessageAttachments from './MessageAttachments';
 import DocumentCard, { DocumentInfo } from './DocumentCard';
 import { copyToClipboard } from '../utils/clipboard';
 import SearchProcess from './SearchProcess';
+import CodeExecution from './CodeExecution';
+import { executeCode, sendCodeResult, setStatusCallback } from '../pyodideRunner';
 
 // 时间戳格式化
 function formatMessageTime(dateStr: string): string {
@@ -250,6 +252,25 @@ const MessageList = React.memo<MessageListProps>(({
                   <DocumentCard document={msg.document} onOpen={(doc) => onOpenDocument?.(doc)} />
                 </div>
               )}
+              {msg.codeExecution && (
+                <CodeExecution
+                  code={msg.codeExecution.code}
+                  status={msg.codeExecution.status}
+                  stdout={msg.codeExecution.stdout}
+                  stderr={msg.codeExecution.stderr}
+                  images={msg.codeExecution.images}
+                  error={msg.codeExecution.error}
+                />
+              )}
+              {!msg.codeExecution && (msg as any).codeImages && (msg as any).codeImages.length > 0 && (
+                <div className="my-3 space-y-2">
+                  {(msg as any).codeImages.map((url: string, i: number) => (
+                    <div key={i} className="rounded-lg overflow-hidden">
+                      <img src={url} alt={`图表 ${i + 1}`} className="max-w-full" />
+                    </div>
+                  ))}
+                </div>
+              )}
               {loading && idx === messages.length - 1 && !msg.content && !msg.thinking && !msg.searchStatus && (
                 <span className="inline-block ml-1 align-middle" style={{ verticalAlign: 'middle' }}>
                   <ClaudeLogo breathe style={{ width: '40px', height: '40px', display: 'inline-block' }} />
@@ -411,6 +432,8 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
 
   const isCreatingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeRequestCountRef = useRef(0);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastResetKeyRef = useRef(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -574,6 +597,18 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     if (activeId) isAtBottomRef.current = true;
   }, [activeId]);
 
+  const stopPolling = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+  }, []);
+
+  // 组件卸载或对话切换时停止轮询
+  useEffect(() => {
+    return () => { stopPolling(); };
+  }, [activeId, stopPolling]);
+
   useEffect(() => {
     if (isAtBottomRef.current) {
       scrollToBottom();
@@ -602,17 +637,102 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   };
 
   const loadConversation = async (conversationId: string) => {
+    stopPolling();
     try {
-      setLoading(true);
       const data = await getConversation(conversationId);
       setMessages(data.messages || []);
       if (data.model) {
         setCurrentModelString(data.model);
       }
       setConversationTitle(data.title || 'New Chat');
+
+      // 检查是否有活跃的后台生成
+      try {
+        const genStatus = await getGenerationStatus(conversationId);
+        if (genStatus.active && genStatus.status === 'generating') {
+          // 追加占位 assistant 消息（如果最后一条不是 assistant）
+          setMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === 'assistant' && !last.content && !genStatus.text) {
+              // 已有空占位，更新它
+              return prev;
+            }
+            if (last && last.role === 'assistant') {
+              // 更新现有 assistant 消息
+              const newMsgs = [...prev];
+              newMsgs[newMsgs.length - 1] = {
+                ...last,
+                content: genStatus.text || last.content,
+                thinking: genStatus.thinking || last.thinking,
+                thinkingSummary: genStatus.thinkingSummary || last.thinkingSummary,
+                citations: genStatus.citations?.length ? genStatus.citations : last.citations,
+                searchLogs: genStatus.searchLogs?.length ? genStatus.searchLogs : last.searchLogs,
+                document: genStatus.document || last.document,
+                isThinking: !genStatus.text && !!genStatus.thinking,
+              };
+              return newMsgs;
+            }
+            // 追加新的 assistant 占位
+            return [...prev, {
+              role: 'assistant',
+              content: genStatus.text || '',
+              thinking: genStatus.thinking || '',
+              thinkingSummary: genStatus.thinkingSummary,
+              citations: genStatus.citations,
+              searchLogs: genStatus.searchLogs,
+              document: genStatus.document,
+              isThinking: !genStatus.text && !!genStatus.thinking,
+            }];
+          });
+          setLoading(true);
+          isAtBottomRef.current = true;
+
+          // 启动轮询
+          pollingRef.current = setInterval(async () => {
+            try {
+              const s = await getGenerationStatus(conversationId);
+              if (!s.active || s.status !== 'generating') {
+                // 生成结束，停止轮询，重新加载最终数据
+                stopPolling();
+                setLoading(false);
+                const final_ = await getConversation(conversationId);
+                setMessages(final_.messages || []);
+                if (final_.title) setConversationTitle(final_.title);
+                return;
+              }
+              // 更新进度
+              setMessages(prev => {
+                const newMsgs = [...prev];
+                const last = newMsgs[newMsgs.length - 1];
+                if (last && last.role === 'assistant') {
+                  newMsgs[newMsgs.length - 1] = {
+                    ...last,
+                    content: s.text || last.content,
+                    thinking: s.thinking || last.thinking,
+                    thinkingSummary: s.thinkingSummary || last.thinkingSummary,
+                    citations: s.citations?.length ? s.citations : last.citations,
+                    searchLogs: s.searchLogs?.length ? s.searchLogs : last.searchLogs,
+                    document: s.document || last.document,
+                    isThinking: !s.text && !!s.thinking,
+                  };
+                }
+                return newMsgs;
+              });
+            } catch (e) {
+              console.error('[Polling] error:', e);
+              stopPolling();
+              setLoading(false);
+            }
+          }, 1500);
+        } else {
+          setLoading(false);
+        }
+      } catch {
+        // generation-status 接口失败不影响正常加载
+        setLoading(false);
+      }
     } catch (err) {
       console.error(err);
-    } finally {
       setLoading(false);
     }
   };
@@ -633,6 +753,10 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const handleSend = async () => {
     const hasFiles = pendingFiles.some(f => f.status === 'done');
     if ((!inputText.trim() && !hasFiles) || loading) return;
+    if (activeRequestCountRef.current >= 2) {
+      alert('最多同时进行 2 个对话，请等待其他对话完成');
+      return;
+    }
     const isUploading = pendingFiles.some(f => f.status === 'uploading');
     if (isUploading) return;
 
@@ -724,6 +848,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setLoading(true);
+    activeRequestCountRef.current += 1;
     await sendMessage(
       conversationId!,
       userMessageText,
@@ -741,6 +866,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       },
       (full) => {
         setLoading(false);
+        activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
         isCreatingRef.current = false; // Reset flag
         setMessages(prev => {
           const newMsgs = [...prev];
@@ -779,6 +905,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       },
       (err) => {
         setLoading(false);
+        activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
         isCreatingRef.current = false;
         setMessages(prev => {
           const newMsgs = [...prev];
@@ -803,6 +930,8 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       (event, message) => {
         // Handle system/status events (e.g. web search status)
         if (event === 'status' && message) {
+          // 非搜索类状态不设置为 searchStatus
+          if (message.includes('执行代码') || message.includes('检查文件') || message.includes('正在创建')) return;
           setMessages(prev => {
             const newMsgs = [...prev];
             const lastMsg = newMsgs[newMsgs.length - 1];
@@ -870,6 +999,66 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           return newMsgs;
         });
       },
+      async (data) => {
+        // Handle code_execution / code_result events
+        if (data.type === 'code_execution') {
+          // 收到代码执行请求 — 更新消息状态 + 在 Pyodide 中执行
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const lastMsg = newMsgs[newMsgs.length - 1];
+            if (lastMsg.role === 'assistant') {
+              lastMsg.codeExecution = {
+                code: data.code || '',
+                status: 'running' as const,
+                stdout: '',
+                stderr: '',
+                images: [],
+                error: null,
+              };
+            }
+            return newMsgs;
+          });
+
+          // 构建文件列表（附件 URL）
+          const files = (data.files || []).map((f: any) => ({
+            name: f.name,
+            url: getAttachmentUrl(f.id),
+          }));
+
+          try {
+            const result = await executeCode(data.code || '', files, data.executionId);
+            // 发送结果回后端
+            await sendCodeResult(data.executionId, result);
+          } catch (e: any) {
+            // 发送错误结果回后端
+            await sendCodeResult(data.executionId, {
+              stdout: '',
+              stderr: '',
+              images: [],
+              error: e.message || 'Pyodide 执行失败',
+            });
+          }
+        }
+
+        if (data.type === 'code_result') {
+          // 收到执行结果 — 更新消息状态
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const lastMsg = newMsgs[newMsgs.length - 1];
+            if (lastMsg.role === 'assistant' && lastMsg.codeExecution) {
+              lastMsg.codeExecution = {
+                ...lastMsg.codeExecution,
+                status: data.error ? 'error' as const : 'done' as const,
+                stdout: data.stdout || '',
+                stderr: data.stderr || '',
+                images: data.images || [],
+                error: data.error || null,
+              };
+            }
+            return newMsgs;
+          });
+        }
+      },
       controller.signal
     );
   };
@@ -898,11 +1087,17 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     }
   };
 
-  // 停止生成
+  // 停止生成（双模式：SSE 直连 or 轮询模式）
   const handleStop = () => {
     if (abortControllerRef.current) {
+      // SSE 直连模式
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+      activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
+    } else if (pollingRef.current && activeId) {
+      // 轮询模式：调用后端停止接口
+      stopGeneration(activeId).catch(e => console.error('[Stop] error:', e));
+      stopPolling();
     }
     setLoading(false);
     isCreatingRef.current = false;
@@ -922,6 +1117,10 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   // 重新发送消息
   const handleResendMessage = async (content: string, idx: number) => {
     if (loading) return;
+    if (activeRequestCountRef.current >= 2) {
+      alert('最多同时进行 2 个对话，请等待其他对话完成');
+      return;
+    }
     const msg = messages[idx];
     // 删除当前消息及其后续消息（前端），然后重新添加用户消息 + assistant 占位
     setMessages(prev => [
@@ -943,6 +1142,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setLoading(true);
+    activeRequestCountRef.current += 1;
     await sendMessage(
       activeId!,
       content,
@@ -960,6 +1160,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       },
       (full) => {
         setLoading(false);
+        activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
         abortControllerRef.current = null;
         setMessages(prev => {
           const newMsgs = [...prev];
@@ -973,6 +1174,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       },
       (err) => {
         setLoading(false);
+        activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
         abortControllerRef.current = null;
         setMessages(prev => {
           const newMsgs = [...prev];
@@ -1007,6 +1209,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       },
       undefined,
       undefined,
+      undefined,
       controller.signal
     );
   };
@@ -1027,6 +1230,10 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   // 保存编辑 — 删除当前及后续消息，用新内容重新发送
   const handleEditSave = async () => {
     if (editingMessageIdx === null || !editingContent.trim() || loading) return;
+    if (activeRequestCountRef.current >= 2) {
+      alert('最多同时进行 2 个对话，请等待其他对话完成');
+      return;
+    }
     const idx = editingMessageIdx;
     const msg = messages[idx];
     const newContent = editingContent.trim();
@@ -1061,6 +1268,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     const controller = new AbortController();
     abortControllerRef.current = controller;
     setLoading(true);
+    activeRequestCountRef.current += 1;
     await sendMessage(
       conversationId,
       newContent,
@@ -1078,6 +1286,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       },
       (full) => {
         setLoading(false);
+        activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
         setMessages(prev => {
           const newMsgs = [...prev];
           const lastMsg = newMsgs[newMsgs.length - 1];
@@ -1090,6 +1299,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       },
       (err) => {
         setLoading(false);
+        activeRequestCountRef.current = Math.max(0, activeRequestCountRef.current - 1);
         setMessages(prev => {
           const newMsgs = [...prev];
           if (newMsgs[newMsgs.length - 1].role === 'assistant') {
@@ -1121,6 +1331,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           });
         }
       },
+      undefined,
       undefined,
       undefined,
       controller.signal

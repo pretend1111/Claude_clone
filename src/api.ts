@@ -195,6 +195,19 @@ export async function updateConversation(id: string, data: any) {
   return res.json();
 }
 
+
+// 查询对话的活跃生成状态
+export async function getGenerationStatus(conversationId: string) {
+  const res = await request(`/conversations/${conversationId}/generation-status`);
+  return res.json();
+}
+
+// 主动停止后台生成
+export async function stopGeneration(conversationId: string) {
+  const res = await request(`/conversations/${conversationId}/stop-generation`, { method: 'POST' });
+  return res.json();
+}
+
 // 手动压缩对话
 export async function compactConversation(
   id: string,
@@ -291,6 +304,7 @@ export async function sendMessage(
   onSystem?: (event: string, message: string, data: any) => void,
   onCitations?: (citations: Array<{ url: string; title: string; cited_text?: string }>, query?: string) => void,
   onDocument?: (document: { id: string; title: string; filename: string; url: string; content?: string; format?: 'markdown' | 'docx' | 'pptx'; slides?: Array<{ title: string; content: string; notes?: string }> }) => void,
+  onCodeExecution?: (data: { type: string; executionId: string; code?: string; language?: string; files?: Array<{ id: string; name: string }>; stdout?: string; stderr?: string; images?: string[]; error?: string | null }) => void,
   signal?: AbortSignal
 ) {
   const token = getToken();
@@ -381,6 +395,22 @@ export async function sendMessage(
             continue;
           }
 
+          // 处理代码执行事件
+          if (parsed.type === 'code_execution') {
+            if (onCodeExecution) {
+              onCodeExecution(parsed);
+            }
+            continue;
+          }
+
+          // 处理代码执行结果事件
+          if (parsed.type === 'code_result') {
+            if (onCodeExecution) {
+              onCodeExecution(parsed);
+            }
+            continue;
+          }
+
           // 处理 thinking 内容
           if (parsed.type === 'content_block_delta' && parsed.delta) {
             if (parsed.delta.type === 'text_delta' && parsed.delta.text) {
@@ -445,6 +475,9 @@ export async function sendMessage(
 
     if (fullText) {
       onDone(fullText);
+    } else {
+      // 无文本回复（如纯工具事件），也要触发完成回调
+      onDone('');
     }
   } catch (err: any) {
     // 用户主动中断不算错误

@@ -146,8 +146,6 @@ const Layout = () => {
   const handleNewChat = () => {
     setNewChatKey(prev => prev + 1);
     setRefreshTrigger(prev => prev + 1);
-    setNewChatKey(prev => prev + 1);
-    setRefreshTrigger(prev => prev + 1);
     setShowSettings(false);
     setShowUpgrade(false);
     setDocumentPanelDoc(null);
