@@ -24,13 +24,13 @@ const ArtifactsPanel: React.FC<ArtifactsPanelProps> = ({ documents, onClose, onO
             </div>
 
             {/* Content List */}
-            <div className="flex-1 overflow-y-auto px-5 pb-5">
+            <div className="flex-1 overflow-y-auto px-4 pb-4">
                 {documents.length === 0 ? (
                     <div className="text-center text-claude-textSecondary mt-10 text-[14px]">
                         No artifacts generated in this chat yet.
                     </div>
                 ) : (
-                    <div className="space-y-3 w-[97%]">
+                    <div className="space-y-3">
                         {documents.map((doc, idx) => (
                             <DocumentCard
                                 key={doc.id || idx}

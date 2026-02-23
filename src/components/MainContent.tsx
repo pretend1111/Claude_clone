@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Square, Paperclip, ListCollapse, Globe, Clock, Ghost } from 'lucide-react';
+import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Paperclip, ListCollapse, Globe, Clock } from 'lucide-react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
@@ -17,7 +17,20 @@ import { executeCode, sendCodeResult, setStatusCallback } from '../pyodideRunner
 // 时间戳格式化
 function formatMessageTime(dateStr: string): string {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
+  
+  let timeStr = dateStr;
+  // Handle SQLite format (space instead of T)
+  if (timeStr.includes(' ') && !timeStr.includes('T')) {
+    timeStr = timeStr.replace(' ', 'T');
+  }
+  // Handle missing timezone (assume UTC if no Z or offset at end)
+  if (!/Z$|[+-]\d{2}:?\d{2}$/.test(timeStr)) {
+    timeStr += 'Z';
+  }
+
+  const date = new Date(timeStr);
+  if (isNaN(date.getTime())) return '';
+
   const now = new Date();
   const isToday = date.getFullYear() === now.getFullYear() &&
     date.getMonth() === now.getMonth() &&
@@ -127,7 +140,7 @@ const MessageList = React.memo<MessageListProps>(({
                   </span>
                   <div className="flex items-center gap-2">
                     <button onClick={onEditCancel} className="px-4 py-1.5 text-[13px] font-medium text-claude-text bg-claude-btnHover hover:bg-claude-hover rounded-lg transition-colors">Cancel</button>
-                    <button onClick={onEditSave} disabled={!editingContent.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#D97757] hover:bg-[#c4694a] rounded-lg transition-colors disabled:opacity-40">Send</button>
+                    <button onClick={onEditSave} disabled={!editingContent.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#C6613F] hover:bg-[#D97757] rounded-lg transition-colors disabled:opacity-40">Send</button>
                   </div>
                 </div>
               </div>
@@ -176,7 +189,7 @@ const MessageList = React.memo<MessageListProps>(({
                   {msg.created_at && (
                     <span className="text-[12px] text-claude-textSecondary mr-1">{formatMessageTime(msg.created_at)}</span>
                   )}
-                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-0.5 overflow-hidden transition-all duration-200 ease-in-out max-w-0 opacity-0 group-hover:max-w-[200px] group-hover:opacity-100">
                     <button onClick={() => onResend(msg.content, idx)} className="p-1 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded transition-colors" title="重新发送"><RotateCcw size={14} /></button>
                     <button onClick={() => onEdit(msg.content, idx)} className="p-1 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded transition-colors" title="编辑"><Pencil size={14} /></button>
                     <button onClick={() => onCopy(msg.content, idx)} className="p-1 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded transition-colors" title="复制">
@@ -233,7 +246,7 @@ const MessageList = React.memo<MessageListProps>(({
                   )}
                 </div>
               )}
-              {msg.searchStatus && (!msg.searchLogs || msg.searchLogs.length === 0) && (
+              {msg.searchStatus && (!msg.searchLogs || msg.searchLogs.length === 0) && (!msg.content || msg.content.length === (msg._contentLenBeforeSearch || 0)) && loading && idx === messages.length - 1 && (
                 <div className="flex items-center justify-center gap-2 text-[15px] font-medium mb-4 w-full">
                   <Globe size={18} className="text-[#6b7280]" />
                   <span className="animate-shimmer-text">
@@ -307,68 +320,6 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const [localId, setLocalId] = useState<string | null>(null);
   const [showEntranceAnimation, setShowEntranceAnimation] = useState(false);
   
-  // Temporary Font Tuner State
-  const [tempFontSize, setTempFontSize] = useState(() => Number(localStorage.getItem('font_tuner_size')) || 46);
-  const [tempFontWeight, setTempFontWeight] = useState(() => Number(localStorage.getItem('font_tuner_weight')) || 500);
-  const [tempLetterSpacing, setTempLetterSpacing] = useState(() => Number(localStorage.getItem('font_tuner_spacing')) || -0.05);
-  const [tempTextStroke, setTempTextStroke] = useState(() => Number(localStorage.getItem('font_tuner_stroke')) || 0);
-  const [tempFontFamily, setTempFontFamily] = useState(() => localStorage.getItem('font_tuner_family') || 'Optima');
-  const [showFontTuner, setShowFontTuner] = useState(false);
-
-  // Persist Font Tuner State
-  useEffect(() => {
-    localStorage.setItem('font_tuner_size', String(tempFontSize));
-    localStorage.setItem('font_tuner_weight', String(tempFontWeight));
-    localStorage.setItem('font_tuner_spacing', String(tempLetterSpacing));
-    localStorage.setItem('font_tuner_stroke', String(tempTextStroke));
-    localStorage.setItem('font_tuner_family', tempFontFamily);
-  }, [tempFontSize, tempFontWeight, tempLetterSpacing, tempTextStroke, tempFontFamily]);
-
-  // Initialize from tunerConfig if available (only if not in localStorage)
-  useEffect(() => {
-    if (tunerConfig?.welcomeSize && !localStorage.getItem('font_tuner_size')) {
-      setTempFontSize(tunerConfig.welcomeSize);
-    }
-  }, [tunerConfig]);
-
-  const FONT_FAMILIES = [
-    'Spectral', // Default
-    'Söhne',
-    'Söhne Mono',
-    'Inter',
-    'system-ui',
-    '-apple-system',
-    'BlinkMacSystemFont',
-    'Segoe UI',
-    'Roboto',
-    'Helvetica Neue',
-    'Arial',
-    'sans-serif',
-    'Georgia',
-    'Times New Roman',
-    'serif',
-    'Courier New',
-    'Courier',
-    'monospace',
-    'Verdana',
-    'Tahoma',
-    'Trebuchet MS',
-    'Impact',
-    'Gill Sans',
-    'Optima',
-    'American Typewriter',
-    'Didot',
-    'Copperplate',
-    'Papyrus',
-    'Brush Script MT',
-    'Lucida Console',
-    'Monaco',
-    'Bradley Hand',
-    'Luminari',
-    'Chalkboard',
-    'Comic Sans MS'
-  ];
-
   // Use localId if we just created a chat, effectively overriding the lack of URL param until next true navigation
   const activeId = id || localId || null;
 
@@ -911,6 +862,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           const newMsgs = [...prev];
           if (newMsgs[newMsgs.length - 1].role === 'assistant') {
             newMsgs[newMsgs.length - 1].content = "Error: " + err;
+            newMsgs[newMsgs.length - 1].isThinking = false;
           }
           return newMsgs;
         });
@@ -1180,6 +1132,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           const newMsgs = [...prev];
           if (newMsgs[newMsgs.length - 1].role === 'assistant') {
             newMsgs[newMsgs.length - 1].content = "Error: " + err;
+            newMsgs[newMsgs.length - 1].isThinking = false;
           }
           return newMsgs;
         });
@@ -1304,6 +1257,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           const newMsgs = [...prev];
           if (newMsgs[newMsgs.length - 1].role === 'assistant') {
             newMsgs[newMsgs.length - 1].content = "Error: " + err;
+            newMsgs[newMsgs.length - 1].isThinking = false;
           }
           return newMsgs;
         });
@@ -1455,64 +1409,6 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
     return (
       <div className={`flex-1 bg-claude-bg h-screen flex flex-col relative overflow-hidden text-claude-text ${showEntranceAnimation ? 'animate-slide-in' : ''}`}>
         
-        {/* Font Tuner Toggle Button */}
-        <button
-          onClick={() => setShowFontTuner(prev => !prev)}
-          className="fixed top-4 right-4 z-50 p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
-          title="Toggle Font Tuner"
-        >
-          <Ghost size={20} />
-        </button>
-
-        {/* Font Tuner (Debug) */}
-        {showFontTuner && (
-          <div className="fixed top-16 right-6 z-50 w-64 bg-white/95 dark:bg-gray-800/95 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-xl backdrop-blur-md p-5 transition-all animate-in fade-in slide-in-from-top-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Font Tuner</span>
-              </div>
-              <button 
-                onClick={() => setShowFontTuner(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {/* Font Family */}
-              <div 
-                className="group relative bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl p-3 cursor-ns-resize select-none transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
-                onWheel={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const delta = e.deltaY > 0 ? 1 : -1;
-                  setTempFontFamily(prev => {
-                    const idx = FONT_FAMILIES.indexOf(prev);
-                    const nextIdx = (idx + delta + FONT_FAMILIES.length) % FONT_FAMILIES.length;
-                    return FONT_FAMILIES[nextIdx];
-                  });
-                }}
-              >
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wide group-hover:text-orange-500 transition-colors">Font</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-gray-400 opacity-0 group-hover:opacity-60 transition-opacity">Scroll</span>
-                    <ArrowUp size={12} className="text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity transform group-hover:-translate-y-0.5" />
-                  </div>
-                </div>
-                <div className="text-base font-medium text-claude-text truncate" title={tempFontFamily}>
-                  {tempFontFamily}
-                </div>
-              </div>
-
-              {/* Other controls hidden as requested */}
-            </div>
-          </div>
-        )}
-
-
         {/* Centered Content */}
         <div
           className="flex-1 flex flex-col items-center w-full mx-auto px-4 pl-12"
@@ -1524,45 +1420,27 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
         >
 
           <div
-            className="flex items-center gap-1"
+            className="flex items-center gap-4"
             style={{ marginBottom: `${tunerConfig?.welcomeMb || 40}px` }}
           >
-            <div className="w-[66px] h-[66px] flex items-center justify-center">
-              <ClaudeLogo />
+            <div className="w-[48px] h-[48px] flex items-center justify-center translate-x-[16px] translate-y-[4px]">
+              <ClaudeLogo color="#D97757" />
             </div>
             <h1
               className="text-claude-text tracking-tight leading-none pt-1 transition-all duration-100 ease-out whitespace-nowrap"
               style={{
-                fontFamily: tempFontFamily,
-                fontSize: `${tempFontSize}px`,
-                fontWeight: tempFontWeight,
-                letterSpacing: `${tempLetterSpacing}em`,
-                WebkitTextStroke: `${tempTextStroke}px currentColor`,
+                fontFamily: 'Optima, Candara, "Segoe UI", Segoe, "Humanist 521", sans-serif',
+                fontSize: '46px',
+                fontWeight: 500,
+                letterSpacing: '-0.05em',
               }}
             >
               {welcomeGreeting}
             </h1>
           </div>
 
-          {/* 无套餐提示 */}
-          {hasSubscription === false && (
-            <div className="w-full max-w-md mb-6 bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-2xl p-6 text-center">
-              <h3 className="text-base font-semibold text-gray-800 mb-2">您当前没有可用套餐</h3>
-              <p className="text-sm text-gray-500 mb-4">购买套餐后即可开始使用 AI 对话功能</p>
-              <button
-                onClick={() => {
-                  // Navigate to upgrade page — trigger the onOpenUpgrade in parent Layout
-                  window.dispatchEvent(new CustomEvent('open-upgrade'));
-                }}
-                className="px-6 py-2.5 bg-[#D97757] hover:bg-[#c4684b] text-white text-sm font-medium rounded-xl transition-colors"
-              >
-                购买套餐
-              </button>
-            </div>
-          )}
-
           {/* 输入框区域 */}
-          <div className={`w-full relative group ${hasSubscription === false ? 'opacity-40 pointer-events-none select-none' : ''}`}>
+          <div className="w-full relative group">
             <input
               type="file"
               ref={fileInputRef}
@@ -1575,7 +1453,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
               }}
             />
             <div
-              className={`bg-claude-input border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col max-h-[60vh] ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
+              className={`bg-claude-input border shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col max-h-[60vh] ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
               style={{ borderRadius: `${tunerConfig?.inputRadius || 16}px` }}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -1616,14 +1494,25 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
                   />
                   <button
                     onClick={handleSend}
-                    disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || loading || pendingFiles.some(f => f.status === 'uploading')}
-                    className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || loading || pendingFiles.some(f => f.status === 'uploading') || hasSubscription === false}
+                    className="p-2 bg-[#C6613F] text-white rounded-lg hover:bg-[#D97757] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <ArrowUp size={22} strokeWidth={2.5} />
                   </button>
                 </div>
               </div>
             </div>
+            {hasSubscription === false && (
+              <div className="mx-4 flex items-center justify-between px-4 py-1.5 bg-claude-bgSecondary border-x border-b border-claude-border rounded-b-xl text-claude-textSecondary text-xs">
+                <span>您当前没有可用套餐，无法发送消息</span>
+                <button
+                  onClick={() => window.dispatchEvent(new CustomEvent('open-upgrade'))}
+                  className="px-2 py-0.5 bg-claude-btnHover hover:bg-claude-hover text-claude-text text-xs font-medium rounded transition-colors border border-claude-border hover:border-blue-500 hover:text-blue-600"
+                >
+                  购买套餐
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1674,137 +1563,145 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
         </div>
 
         {/* 输入框 - 浮动在内容上方，底部距离可调 */}
-        {hasSubscription === false ? (
-          <div className="absolute left-0 right-0 z-20" style={{ bottom: `${inputBarBottom + 28}px`, paddingLeft: '16px', paddingRight: `${16 + scrollbarWidth}px` }}>
-            <div className="mx-auto" style={{ maxWidth: `${inputBarWidth}px` }}>
-              <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 rounded-2xl p-5 text-center">
-                <p className="text-sm text-gray-600 mb-3">您当前没有可用套餐，无法发送消息</p>
-                <button
-                  onClick={() => window.dispatchEvent(new CustomEvent('open-upgrade'))}
-                  className="px-5 py-2 bg-[#D97757] hover:bg-[#c4684b] text-white text-sm font-medium rounded-xl transition-colors"
-                >
-                  购买套餐
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ bottom: `${inputBarBottom + 28}px`, paddingLeft: '16px', paddingRight: `${16 + scrollbarWidth}px` }}>
-            <div
-              className="mx-auto pointer-events-auto"
-              style={{ maxWidth: `${inputBarWidth}px` }}
-            >
-              <div className="w-full relative group">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  className="hidden"
-                  multiple
-                  accept={ACCEPTED_TYPES}
+        <div className="absolute left-0 right-0 z-20 pointer-events-none" style={{ bottom: `${inputBarBottom + 28}px`, paddingLeft: '16px', paddingRight: `${16 + scrollbarWidth}px` }}>
+          <div
+            className="mx-auto pointer-events-auto"
+            style={{ maxWidth: `${inputBarWidth}px` }}
+          >
+            <div className="w-full relative group">
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                multiple
+                accept={ACCEPTED_TYPES}
+                onChange={(e) => {
+                  if (e.target.files) handleFilesSelected(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <div
+                className={`bg-claude-input border shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
+                style={{ borderRadius: `${inputBarRadius}px` }}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
+                <textarea
+                  ref={inputRef}
+                  className="w-full px-4 pt-4 pb-0 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none font-sans resize-none bg-transparent"
+                  style={{ height: `${inputBarBaseHeight}px`, minHeight: '16px', boxSizing: 'border-box', overflowY: 'hidden' }}
+                  placeholder="How can I help you today?"
+                  value={inputText}
                   onChange={(e) => {
-                    if (e.target.files) handleFilesSelected(e.target.files);
-                    e.target.value = '';
+                    setInputText(e.target.value);
+                    adjustTextareaHeight();
                   }}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                 />
-                <div
-                  className={`bg-claude-input border shadow-none hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
-                  style={{ borderRadius: `${inputBarRadius}px` }}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                >
-                  <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
-                  <textarea
-                    ref={inputRef}
-                    className="w-full px-4 pt-4 pb-0 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none font-sans resize-none bg-transparent"
-                    style={{ height: `${inputBarBaseHeight}px`, minHeight: '16px', boxSizing: 'border-box', overflowY: 'hidden' }}
-                    placeholder="How can I help you today?"
-                    value={inputText}
-                    onChange={(e) => {
-                      setInputText(e.target.value);
-                      adjustTextareaHeight();
-                    }}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                  />
-                  <div className="px-4 pb-3 pt-1 flex items-center justify-between">
-                    <div className="relative">
-                      <button
-                        ref={plusBtnRef}
-                        onClick={() => setShowPlusMenu(prev => !prev)}
-                        className="p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
+                <div className="px-4 pb-3 pt-1 flex items-center justify-between">
+                  <div className="relative">
+                    <button
+                      ref={plusBtnRef}
+                      onClick={() => setShowPlusMenu(prev => !prev)}
+                      className="p-2 text-claude-textSecondary hover:text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
+                    >
+                      <IconPlus size={20} />
+                    </button>
+                    {showPlusMenu && (
+                      <div
+                        ref={plusMenuRef}
+                        className="absolute bottom-full left-0 mb-2 w-[220px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50"
                       >
-                        <IconPlus size={20} />
+                        <button
+                          onClick={() => {
+                            setShowPlusMenu(false);
+                            fileInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                        >
+                          <Paperclip size={16} className="text-[#525252]" />
+                          Add files or photos
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setShowPlusMenu(false);
+                            if (!activeId || compactStatus.state === 'compacting') return;
+                            setCompactStatus({ state: 'compacting' });
+                            try {
+                              const result = await compactConversation(activeId);
+                              await loadConversation(activeId);
+                              setCompactStatus({ state: 'done', message: `Compacted ${result.messagesCompacted} messages, saved ~${result.tokensSaved} tokens` });
+                              setTimeout(() => setCompactStatus({ state: 'idle' }), 4000);
+                            } catch (err) {
+                              console.error('Compact failed:', err);
+                              setCompactStatus({ state: 'error', message: 'Compaction failed' });
+                              setTimeout(() => setCompactStatus({ state: 'idle' }), 3000);
+                            }
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
+                        >
+                          <ListCollapse size={16} className="text-claude-textSecondary" />
+                          Compact conversation
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <ModelSelector
+                      currentModelString={currentModelString}
+                      onModelChange={handleModelChange}
+                      isNewChat={false}
+                      dropdownPosition="top"
+                    />
+                    {loading ? (
+                      <button
+                        onClick={handleStop}
+                        className="p-2 text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="24"
+                          height="24"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <circle cx="12" cy="12" r="10" />
+                          <rect x="9" y="9" width="6" height="6" fill="currentColor" stroke="none" />
+                        </svg>
                       </button>
-                      {showPlusMenu && (
-                        <div
-                          ref={plusMenuRef}
-                          className="absolute bottom-full left-0 mb-2 w-[220px] bg-claude-input border border-claude-border rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.12)] py-1.5 z-50"
-                        >
-                          <button
-                            onClick={() => {
-                              setShowPlusMenu(false);
-                              fileInputRef.current?.click();
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
-                          >
-                            <Paperclip size={16} className="text-[#525252]" />
-                            Add files or photos
-                          </button>
-                          <button
-                            onClick={async () => {
-                              setShowPlusMenu(false);
-                              if (!activeId || compactStatus.state === 'compacting') return;
-                              setCompactStatus({ state: 'compacting' });
-                              try {
-                                const result = await compactConversation(activeId);
-                                await loadConversation(activeId);
-                                setCompactStatus({ state: 'done', message: `Compacted ${result.messagesCompacted} messages, saved ~${result.tokensSaved} tokens` });
-                                setTimeout(() => setCompactStatus({ state: 'idle' }), 4000);
-                              } catch (err) {
-                                console.error('Compact failed:', err);
-                                setCompactStatus({ state: 'error', message: 'Compaction failed' });
-                                setTimeout(() => setCompactStatus({ state: 'idle' }), 3000);
-                              }
-                            }}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
-                          >
-                            <ListCollapse size={16} className="text-claude-textSecondary" />
-                            Compact conversation
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <ModelSelector
-                        currentModelString={currentModelString}
-                        onModelChange={handleModelChange}
-                        isNewChat={false}
-                        dropdownPosition="top"
-                      />
-                      {loading ? (
-                        <button
-                          onClick={handleStop}
-                          className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors"
-                        >
-                          <Square size={18} fill="white" strokeWidth={0} />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={handleSend}
-                          disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || pendingFiles.some(f => f.status === 'uploading')}
-                          className="p-2 bg-[#D97757] text-white rounded-lg hover:bg-[#c4694a] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                          <ArrowUp size={22} strokeWidth={2.5} />
-                        </button>
-                      )}
-                    </div>
+                    ) : (
+                      <button
+                        onClick={handleSend}
+                        disabled={(!inputText.trim() && !pendingFiles.some(f => f.status === 'done')) || pendingFiles.some(f => f.status === 'uploading') || hasSubscription === false}
+                        className="p-2 bg-[#C6613F] text-white rounded-lg hover:bg-[#D97757] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <ArrowUp size={22} strokeWidth={2.5} />
+                  </button>
+                    )}
                   </div>
                 </div>
               </div>
+              {hasSubscription === false && (
+                <div className="mx-4 flex items-center justify-between px-4 py-1.5 bg-claude-bgSecondary border-x border-b border-claude-border rounded-b-xl text-claude-textSecondary text-xs pointer-events-auto">
+                  <span>您当前没有可用套餐，无法发送消息</span>
+                  <button
+                    onClick={() => window.dispatchEvent(new CustomEvent('open-upgrade'))}
+                    className="px-2 py-0.5 bg-claude-btnHover hover:bg-claude-hover text-claude-text text-xs font-medium rounded transition-colors border border-claude-border hover:border-blue-500 hover:text-blue-600"
+                  >
+                    购买套餐
+                  </button>
+                </div>
+              )}
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -1,304 +1,304 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef } from 'react';
 
-// 视觉颜色配置
-const COLORS = {
-  bg: 'transparent', // 透明背景
-  shape: '#D97757',  // Claude Logo 陶土色
-};
-
-// 物理/交互配置
-const SETTINGS = {
-  interactionRadius: 160,
-  steps: 5,
-  tipScaleLength: 1.5,
-  rootScaleLength: 0.6,
-  rootMinTaper: 0.6,
-  rootScaleWidth: 1.6,
-  jitterInterval: 240,
-  jitterStrength: 0.15,
-};
+// 核心数据 - 来自 claude logo.txt
+const CORE_RADIUS = 27.2;
+const INITIAL_TENTACLES = [
+  { id: 1, angle: -176.8, length: 82.0, baseW: 10.0, tipW: 11.2 },
+  { id: 2, angle: -144.1, length: 83.6, baseW: 16.5, tipW: 19.1 },
+  { id: 3, angle: -117.6, length: 89.2, baseW: 17.9, tipW: 23.6 },
+  { id: 4, angle: -82.1,  length: 73.2, baseW: 13.2, tipW: 16.6 },
+  { id: 5, angle: -50.8,  length: 73.4, baseW: 26.5, tipW: 21.5 },
+  { id: 6, angle: -10.9,  length: 67.7, baseW: 15.2, tipW: 13.7 },
+  { id: 7, angle: 9.1,    length: 69.3, baseW: 9.8,  tipW: 18.2 },
+  { id: 8, angle: 40.6,   length: 71.1, baseW: 13.4, tipW: 8.9 },
+  { id: 9, angle: 56.2,   length: 68.2, baseW: 18.0, tipW: 15.3 },
+  { id: 10, angle: 98.5,  length: 73.8, baseW: 9.8,  tipW: 15.7 },
+  { id: 11, angle: 128.1, length: 77.6, baseW: 13.5, tipW: 11.8 },
+  { id: 12, angle: 148.1, length: 75.0, baseW: 13.6, tipW: 14.4 }
+];
 
 interface ClaudeLogoProps {
   className?: string;
   style?: React.CSSProperties;
   onClick?: () => void;
-  autoAnimate?: boolean; // 自动转圈动画模式（模拟鼠标绕圈）
-  breathe?: boolean; // 呼吸动画模式（12根条纹同时缩放）
+  autoAnimate?: boolean; // 对应 thinking 模式
+  breathe?: boolean;     // 对应 waiting 模式
+  color?: string;
 }
 
-const ClaudeLogo = ({ className = '', style, onClick, autoAnimate = false, breathe = false }: ClaudeLogoProps) => {
+const ClaudeLogo: React.FC<ClaudeLogoProps> = ({ className = '', style, onClick, autoAnimate = false, breathe = false, color = '#D97757' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const requestRef = useRef<number | null>(null);
-  const mouseState = useRef({ x: -1000, y: -1000 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const requestRef = useRef<number | null>(null);
+  
+  // 实例状态
+  const tentaclesRef = useRef(INITIAL_TENTACLES.map(t => ({
+    ...t,
+    animLength: t.length,
+    animBaseW: t.baseW,
+    animTipW: t.tipW,
+    jL: 0, jB: 0, jT: 0
+  })));
+  
+  const mouseRef = useRef({ x: -9999, y: -9999, present: false });
+  const lastJitterTimeRef = useRef(0);
+  const stateRef = useRef({
+    scale: 0.8, // 将根据容器大小动态更新
+    smoothness: 0,
+    fillet: 6.0,
+    color: color,
+    mode: 'idle'
+  });
 
-  const lastJitterTime = useRef(0);
-  const jitterValues = useRef<{ l: number; w: number; t: number }[]>([]);
-  const autoAnimateAngle = useRef(0);
+  // 监听颜色变化
+  useEffect(() => {
+    stateRef.current.color = color;
+  }, [color]);
 
-  // 生成不规则几何配置
-  const barsConfig = useMemo(() => {
-    jitterValues.current = Array.from({ length: 12 }).map(() => ({ l: 0, w: 0, t: 0 }));
-
-    return Array.from({ length: 12 }).map((_, i) => {
-      const angleJitter = (Math.random() - 0.5) * 12;
-      const baseLength = 55 + Math.random() * 35;
-      const baseWidth = 10 + Math.random() * 6;
-      const baseTaperRatio = 0.9 + Math.random() * 0.2;
-      const maxTaperRatio = 1.4 + Math.random() * 0.2;
-      const tipSegments = Math.floor(2 + Math.random() * 3);
-
-      const tipOffsets = Array.from({ length: tipSegments - 1 }).map(() => ({
-        angleBias: Math.random() * 0.4 - 0.2,
-        radiusFactor: 0.2 + Math.random() * 0.3
-      }));
-
-      return {
-        angle: (i * 30) + angleJitter,
-        baseLength,
-        baseWidth,
-        baseDist: 12,
-        baseTaperRatio,
-        maxTaperRatio,
-        tipSegments,
-        tipOffsets
-      };
-    });
-  }, []);
+  // 更新模式
+  useEffect(() => {
+    if (breathe) {
+      stateRef.current.mode = 'waiting';
+    } else if (autoAnimate) {
+      stateRef.current.mode = 'thinking';
+    } else {
+      stateRef.current.mode = 'idle';
+    }
+  }, [breathe, autoAnimate]);
 
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // 辅助函数：计算点到线段的距离以及投影位置
-    const getSegmentData = (mx: number, my: number, x1: number, y1: number, x2: number, y2: number) => {
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const lenSq = dx * dx + dy * dy;
-      let t = ((mx - x1) * dx + (my - y1) * dy) / lenSq;
-      const clampedT = Math.max(0, Math.min(1, t));
-      const projX = x1 + clampedT * dx;
-      const projY = y1 + clampedT * dy;
-      const dist = Math.sqrt((mx - projX) ** 2 + (my - projY) ** 2);
-      return { dist, t };
-    };
+    const tentacles = tentaclesRef.current;
+    const state = stateRef.current;
+    const mouse = mouseRef.current;
 
-    const drawPolygonBar = (
-      ctx: CanvasRenderingContext2D,
-      x: number,
-      y: number,
-      w: number,
-      l: number,
-      angle: number,
-      taperRatio: number,
-      config: typeof barsConfig[0]
-    ) => {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate((angle * Math.PI) / 180);
+    const JITTER_FPS = 3;
+    const jitterInterval = 1000 / JITTER_FPS;
 
-      ctx.beginPath();
-
-      const startHalfW = w / 2;
-      const endHalfW = (w * taperRatio) / 2;
-
-      ctx.moveTo(0, -startHalfW);
-      ctx.lineTo(0, startHalfW);
-      ctx.lineTo(l, endHalfW);
-
-      const tipRadius = endHalfW;
-      config.tipOffsets.forEach((offset, i) => {
-        const totalSegments = config.tipSegments;
-        const segmentIndex = i + 1;
-        const baseAngle = Math.PI / 2 - (Math.PI * segmentIndex) / totalSegments;
-        const finalAngle = baseAngle + offset.angleBias;
-        const r = tipRadius * (1 + offset.radiusFactor);
-        const px = l + Math.cos(finalAngle) * r * 0.6;
-        const py = Math.sin(finalAngle) * tipRadius;
-        ctx.lineTo(px, py);
-      });
-
-      ctx.lineTo(l, -endHalfW);
-      ctx.lineTo(0, -startHalfW);
-
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    };
-
+    // 调整大小
     const handleResize = () => {
-      const dpr = window.devicePixelRatio || 1;
-      // 使用容器的尺寸而不是窗口尺寸
       const rect = container.getBoundingClientRect();
-      const width = rect.width || 27;
-      const height = rect.height || 27;
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
+      const dpr = window.devicePixelRatio || 1;
+      
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      
+      // 计算缩放比例
+      // 参考尺寸: 240 (大约是 tentacles 展开后的直径)
+      // 恢复到较大的缩放比例，让图标填满容器
+      const minDim = Math.min(rect.width, rect.height);
+      // 防止除以0
+      if (minDim > 0) {
+        state.scale = (minDim / 240) * 0.85; 
+      }
+      
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.scale(dpr, dpr);
     };
 
+    // 鼠标事件
     const handleMouseMove = (e: MouseEvent) => {
       const rect = canvas.getBoundingClientRect();
-      mouseState.current.x = e.clientX - rect.left;
-      mouseState.current.y = e.clientY - rect.top;
+      mouse.x = e.clientX - rect.left;
+      mouse.y = e.clientY - rect.top;
+      mouse.present = true;
     };
 
     const handleMouseLeave = () => {
-      mouseState.current.x = -1000;
-      mouseState.current.y = -1000;
+      mouse.present = false;
+      mouse.x = -9999;
+      mouse.y = -9999;
     };
 
-    const animate = () => {
-      const now = Date.now();
-      const width = canvas.width / (window.devicePixelRatio || 1);
-      const height = canvas.height / (window.devicePixelRatio || 1);
-      const centerX = width / 2;
-      const centerY = height / 2;
+    // 动画循环
+    const animate = (timestamp: number) => {
+      requestRef.current = requestAnimationFrame(animate);
+      
+      const rect = container.getBoundingClientRect();
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
 
-      // autoAnimate 模式：模拟鼠标在外圈匀速转圈
-      // breathe 模式：模拟鼠标在中心做径向往复运动（呼吸效果）
-      let mouseX: number, mouseY: number;
-      if (breathe) {
-        // 使用 sin 函数做平滑的往复运动，周期约 1.5 秒
-        const breathePhase = Math.sin(now * 0.004);
-        // breathePhase 在 -1 到 1 之间
-        // 映射到从中心到外圈的距离：中心附近 → 条纹缩短，外圈 → 条纹伸长
-        const breatheRadius = SETTINGS.interactionRadius * (width / 250) * (0.15 + 0.35 * (breathePhase * 0.5 + 0.5));
-        mouseX = centerX + breatheRadius;
-        mouseY = centerY;
-        // 同时让"鼠标"缓慢旋转，使效果更均匀
-        const slowRotation = now * 0.001;
-        mouseX = centerX + Math.cos(slowRotation) * breatheRadius;
-        mouseY = centerY + Math.sin(slowRotation) * breatheRadius;
-      } else if (autoAnimate) {
-        autoAnimateAngle.current += 0.0525; // 转圈速度（慢一倍）
-        const orbitRadius = SETTINGS.interactionRadius * (width / 250) * 0.55;
-        mouseX = centerX + Math.cos(autoAnimateAngle.current) * orbitRadius;
-        mouseY = centerY + Math.sin(autoAnimateAngle.current) * orbitRadius;
-      } else {
-        mouseX = mouseState.current.x;
-        mouseY = mouseState.current.y;
+      // 物理更新
+      let shouldUpdateJitter = false;
+      if (timestamp - lastJitterTimeRef.current >= jitterInterval) {
+        shouldUpdateJitter = true;
+        lastJitterTimeRef.current = timestamp;
       }
 
-      // 确保不是 0
-      if (width === 0 || height === 0) return;
+      tentacles.forEach(t => {
+        const rad = t.angle * Math.PI / 180;
+        let targetLength = t.length;
+        let targetBaseW = t.baseW;
+        let targetTipW = t.tipW;
 
-      // 缩放因子：将原本设计的大图缩放到 27px 容器
-      // 原始设计假设是约 250px 的大画布，现在要缩放到 27px
-      const scaleFactor = width / 250;
-
-      // 抖动更新逻辑
-      if (now - lastJitterTime.current > SETTINGS.jitterInterval) {
-        lastJitterTime.current = now;
-        jitterValues.current = jitterValues.current.map(() => ({
-          l: (Math.random() - 0.5) * SETTINGS.jitterStrength,
-          w: (Math.random() - 0.5) * SETTINGS.jitterStrength,
-          t: (Math.random() - 0.5) * SETTINGS.jitterStrength,
-        }));
-      }
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = COLORS.bg;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      ctx.fillStyle = COLORS.shape;
-
-      barsConfig.forEach((config, index) => {
-        const rad = (config.angle * Math.PI) / 180;
-
-        // 应用缩放
-        const scaledDist = config.baseDist * scaleFactor;
-        const scaledLength = config.baseLength * scaleFactor;
-        const scaledWidth = config.baseWidth * scaleFactor;
-
-        const x1 = centerX + Math.cos(rad) * scaledDist;
-        const y1 = centerY + Math.sin(rad) * scaledDist;
-        const x2 = centerX + Math.cos(rad) * (scaledDist + scaledLength);
-        const y2 = centerY + Math.sin(rad) * (scaledDist + scaledLength);
-
-        const { dist, t } = getSegmentData(mouseX, mouseY, x1, y1, x2, y2);
-
-        let renderLength = scaledLength;
-        let renderWidth = scaledWidth;
-        let renderTaper = config.baseTaperRatio;
-
-        if (dist < SETTINGS.interactionRadius * scaleFactor) {
-          const rawRatio = 1 - dist / (SETTINGS.interactionRadius * scaleFactor);
-          const steppedRatio = Math.floor(rawRatio * SETTINGS.steps) / SETTINGS.steps;
-
-          if (t < 0.35) {
-            renderLength = scaledLength - (scaledLength * (1 - SETTINGS.rootScaleLength) * steppedRatio);
-            renderTaper = config.baseTaperRatio - (config.baseTaperRatio - SETTINGS.rootMinTaper) * steppedRatio;
-            renderWidth = scaledWidth + (scaledWidth * (SETTINGS.rootScaleWidth - 1)) * steppedRatio;
-          } else {
-            renderLength = scaledLength + (scaledLength * (SETTINGS.tipScaleLength - 1) * steppedRatio);
-            renderTaper = config.baseTaperRatio + (config.maxTaperRatio - config.baseTaperRatio) * steppedRatio;
-          }
-
-          const jitter = jitterValues.current[index];
-          renderLength *= (1 + jitter.l);
-          renderWidth *= (1 + jitter.w);
-          renderTaper *= (1 + jitter.t);
+        if (state.mode === 'idle') {
+            const MAX_DIST = 360; 
+            // 计算相对于 Logo 内部坐标系的鼠标位置
+            // 这里我们保持 claude logo.txt 的逻辑，即除以 scale
+            // 这样无论 Logo 多大，交互范围相对于 Logo 自身的比例是恒定的
+            let localMouseX = (mouse.x - cx) / state.scale;
+            let localMouseY = (mouse.y - cy) / state.scale;
+            
+            const GRID_SIZE = 40;
+            localMouseX = Math.round(localMouseX / GRID_SIZE) * GRID_SIZE;
+            localMouseY = Math.round(localMouseY / GRID_SIZE) * GRID_SIZE;
+            
+            let d_m = Math.hypot(localMouseX, localMouseY);
+            let E = 0; let P = 1; let centerBlend = 0;
+            
+            if (mouse.present && d_m < MAX_DIST) {
+                E = d_m < 200 ? 1 : 1 - Math.pow(1 - (1 - (d_m - 200) / 160), 2);
+                if (d_m > 200) P = 1; else if (d_m < 60) P = -1; else P = Math.sin(((d_m - 60) / 140 * 2 - 1) * Math.PI / 2);
+                if (d_m < 50) centerBlend = 1 - d_m / 50;
+                E = Math.round(E * 5) / 5; P = Math.round(P * 5) / 5;
+                let alignment = Math.round((Math.cos(rad - Math.atan2(localMouseY, localMouseX)) * (1 - centerBlend) + centerBlend) * 4) / 4;
+                let wS = (P + 1) / 2; let wQ = (1 - P) / 2;
+                if (alignment > 0) {
+                    const str = Math.pow(alignment, 1.5);
+                    targetLength *= (1 + E * (wS * 0.4 + wQ * -0.45) * str);
+                    targetBaseW *= (1 + E * (wS * 0.3 + wQ * 0.6) * str);
+                    targetTipW *= (1 + E * (wS * 1.2 + wQ * -0.15) * str);
+                } else {
+                    const str = Math.pow(Math.abs(alignment), 2);
+                    targetLength *= (1 + E * (wS * -0.5 + wQ * -0.2) * str);
+                    targetBaseW *= (1 + E * (wS * -0.35 + wQ * 0.2) * str);
+                    targetTipW *= (1 + E * (wS * -0.35 + wQ * -0.1) * str);
+                }
+                if (shouldUpdateJitter) {
+                    t.jL = Math.round((Math.random() - 0.5) * 4) / 2;
+                    t.jB = Math.round((Math.random() - 0.5) * 4) / 2;
+                    t.jT = Math.round((Math.random() - 0.5) * 4) / 2;
+                }
+                const amt = 0.08 * E;
+                targetLength *= (1 + t.jL * amt);
+                targetBaseW *= (1 + t.jB * amt * 0.5);
+                targetTipW *= (1 + t.jT * amt);
+            }
+            t.animLength = targetLength;
+            t.animBaseW = targetBaseW;
+            t.animTipW = targetTipW;
+        } else if (state.mode === 'waiting') {
+            const t_shrink = 250; const t_expand = 550; const t_pause = 250;
+            const total_cycle = t_shrink + t_expand + t_pause;
+            const progress = timestamp % total_cycle;
+            let raw_k;
+            if (progress < t_shrink) raw_k = Math.cos((progress / t_shrink) * Math.PI / 2);
+            else if (progress < t_shrink + t_expand) raw_k = Math.sin(((progress - t_shrink) / t_expand) * Math.PI / 2);
+            else raw_k = 1;
+            const k = Math.round(raw_k * 10) / 10;
+            targetLength = t.length * k;
+            t.animLength += (targetLength - t.animLength) * 0.45;
+            t.animBaseW = t.baseW; t.animTipW = t.tipW;
+        } else if (state.mode === 'thinking') {
+            const rotSpeed = timestamp / 140; 
+            let spiralPhase = (rad - rotSpeed) % (Math.PI * 2);
+            if (spiralPhase < 0) spiralPhase += Math.PI * 2;
+            let normPhase = spiralPhase / (Math.PI * 2); 
+            let smoothK;
+            if (normPhase < 0.85) {
+                smoothK = 0.45 + 0.85 * (normPhase / 0.85);
+            } else {
+                let p = (normPhase - 0.85) / 0.15;
+                smoothK = 1.3 - 0.85 * p;
+            }
+            const STEPS = 12;
+            const k = Math.round(smoothK * STEPS) / STEPS;
+            targetLength = t.length * k;
+            const w_k = 0.9 + 0.25 * (k - 0.45);
+            targetBaseW = t.baseW * w_k;
+            targetTipW = t.tipW * w_k;
+            t.animLength += (targetLength - t.animLength) * 0.6;
+            t.animBaseW += (targetBaseW - t.animBaseW) * 0.6;
+            t.animTipW += (targetTipW - t.animTipW) * 0.6;
+            if (shouldUpdateJitter) {
+                t.jL = (Math.random() - 0.5) * 0.05;
+            }
+            t.animLength *= (1 + t.jL);
         }
-
-        drawPolygonBar(
-          ctx,
-          centerX,
-          centerY,
-          renderWidth,
-          renderLength,
-          config.angle,
-          renderTaper,
-          config
-        );
       });
 
-      requestRef.current = requestAnimationFrame(animate);
+      // 绘制
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(state.scale, state.scale);
+      ctx.fillStyle = state.color;
+      ctx.strokeStyle = state.color;
+      ctx.lineWidth = 0; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+      tentacles.forEach(t => {
+         const rad = t.angle * Math.PI / 180;
+         const dirX = Math.cos(rad); const dirY = Math.sin(rad);
+         const normX = -Math.sin(rad); const normY = Math.cos(rad);
+         const rRoot = CORE_RADIUS;
+         const rTip = CORE_RADIUS + Math.max(0, t.animLength); 
+         const f = state.fillet;
+         const hw = Math.min(t.animBaseW / 2, rRoot * 0.95); 
+         const theta = Math.asin(hw / rRoot);
+         const B1 = { x: rRoot * Math.cos(rad + theta), y: rRoot * Math.sin(rad + theta) };
+         const B2 = { x: rRoot * Math.cos(rad - theta), y: rRoot * Math.sin(rad - theta) };
+         const Tip1 = { x: dirX * rTip + normX * (t.animTipW / 2), y: dirY * rTip + normY * (t.animTipW / 2) };
+         const Tip2 = { x: dirX * rTip - normX * (t.animTipW / 2), y: dirY * rTip - normY * (t.animTipW / 2) };
+         const U1 = { x: (Tip1.x - B1.x) / (Math.hypot(Tip1.x - B1.x, Tip1.y - B1.y) || 1), y: (Tip1.y - B1.y) / (Math.hypot(Tip1.x - B1.x, Tip1.y - B1.y) || 1) };
+         const U2 = { x: (Tip2.x - B2.x) / (Math.hypot(Tip2.x - B2.x, Tip2.y - B2.y) || 1), y: (Tip2.y - B2.y) / (Math.hypot(Tip2.x - B2.x, Tip2.y - B2.y) || 1) };
+         
+         ctx.beginPath();
+         ctx.moveTo(rRoot * Math.cos(rad + theta + f/rRoot), rRoot * Math.sin(rad + theta + f/rRoot));
+         ctx.quadraticCurveTo(B1.x, B1.y, B1.x + U1.x * f, B1.y + U1.y * f);
+         ctx.lineTo(Tip1.x, Tip1.y);
+         const segments = 3 + (t.id % 3);
+         for (let i = 1; i < segments; i++) {
+             const ang = (rad + Math.PI/2) + (-Math.PI) * (i / segments);
+             ctx.lineTo(dirX * rTip + Math.cos(ang) * (t.animTipW/2), dirY * rTip + Math.sin(ang) * (t.animTipW/2));
+         }
+         ctx.lineTo(Tip2.x, Tip2.y);
+         ctx.lineTo(B2.x + U2.x * f, B2.y + U2.y * f);
+         ctx.quadraticCurveTo(B2.x, B2.y, rRoot * Math.cos(rad - theta - f/rRoot), rRoot * Math.sin(rad - theta - f/rRoot));
+         ctx.closePath();
+         ctx.fill();
+      });
+
+      ctx.beginPath(); ctx.arc(0, 0, CORE_RADIUS, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     };
 
     handleResize();
+    window.addEventListener('resize', handleResize);
+    // 监听 window 上的鼠标移动，以支持更大范围的交互
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseleave', handleMouseLeave);
+    
     requestRef.current = requestAnimationFrame(animate);
 
-    if (!autoAnimate && !breathe) {
-      container.addEventListener('mousemove', handleMouseMove);
-      container.addEventListener('mouseleave', handleMouseLeave);
-    }
-    window.addEventListener('resize', handleResize);
-
     return () => {
-      if (!autoAnimate && !breathe) {
-        container.removeEventListener('mousemove', handleMouseMove);
-        container.removeEventListener('mouseleave', handleMouseLeave);
-      }
       window.removeEventListener('resize', handleResize);
-      if (requestRef.current) {
-        cancelAnimationFrame(requestRef.current);
-      }
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseleave', handleMouseLeave);
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
     };
-  }, [barsConfig, autoAnimate, breathe]);
+  }, []); // 依赖为空，使用 refs 管理可变状态
 
   return (
-    <div
-      ref={containerRef}
-      className={`cursor-pointer ${className}`}
-      style={{
-        width: '66px',
-        height: '66px',
-        ...style
-      }}
+    <div 
+      ref={containerRef} 
+      className={className} 
+      style={{ 
+        width: '100%', 
+        height: '100%', 
+        ...style 
+      }} 
+      onClick={onClick}
     >
-      <canvas
-        ref={canvasRef}
+      <canvas 
+        ref={canvasRef} 
         className="block touch-none"
-        style={{ width: '100%', height: '100%' }}
-        onClick={onClick}
+        style={{ width: '100%', height: '100%', display: 'block' }} 
       />
     </div>
   );

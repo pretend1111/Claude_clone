@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import {
   IconSidebarToggle,
   IconChatBubble,
@@ -16,7 +17,7 @@ import claudeImg from '../assets/icons/claude.png';
 import searchIconImg from '../assets/icons/search-icon.png';
 import { NAV_ITEMS } from '../constants';
 import { ChevronUp, Settings, HelpCircle, LogOut, Shield, CreditCard, Search } from 'lucide-react';
-import { getConversations, deleteConversation, getUser, getUserUsage, logout, getUserProfile } from '../api';
+import { getConversations, deleteConversation, updateConversation, getUser, getUserUsage, logout, getUserProfile } from '../api';
 
 import SearchModal from './SearchModal';
 
@@ -31,12 +32,86 @@ interface SidebarProps {
   setTunerConfig?: (config: any) => void;
 }
 
+interface RenameModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (newTitle: string) => void;
+  initialTitle: string;
+}
+
+const RenameModal = ({ isOpen, onClose, onSave, initialTitle }: RenameModalProps) => {
+  const [title, setTitle] = useState(initialTitle);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTitle(initialTitle);
+      // Focus and select all text after a short delay to ensure modal is rendered
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      }, 50);
+    }
+  }, [isOpen, initialTitle]);
+
+  if (!isOpen) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div 
+        className="bg-claude-input rounded-2xl shadow-xl w-[400px] p-6 animate-fade-in"
+        onClick={e => e.stopPropagation()}
+      >
+        <h3 className="text-[18px] font-semibold text-claude-text mb-4">Rename chat</h3>
+        <input
+          ref={inputRef}
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (title.trim()) onSave(title.trim());
+            } else if (e.key === 'Escape') {
+              onClose();
+            }
+          }}
+          className="w-full px-3 py-2 bg-transparent border border-claude-border rounded-lg text-claude-text focus:outline-none focus:border-blue-500 mb-6 text-[15px]"
+        />
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-[14px] font-medium text-claude-text hover:bg-claude-hover rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => {
+              if (title.trim()) onSave(title.trim());
+            }}
+            disabled={!title.trim()}
+            className="px-4 py-2 text-[14px] font-medium text-white bg-[#333333] hover:bg-[#1a1a1a] dark:bg-[#FFFFFF] dark:text-black dark:hover:bg-[#e5e5e5] rounded-lg transition-colors disabled:opacity-50"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+};
+
 const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, onOpenSettings, onOpenUpgrade, tunerConfig, setTunerConfig }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [chats, setChats] = useState<any[]>([]);
   const [activeMenuIndex, setActiveMenuIndex] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number, left: number } | null>(null);
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameChatId, setRenameChatId] = useState<string | null>(null);
+  const [renameInitialTitle, setRenameInitialTitle] = useState('');
   const [userUser, setUserUser] = useState<any>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
@@ -124,6 +199,37 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
     }
   };
 
+  const handleRenameClick = (e: React.MouseEvent, index: number) => {
+    e.stopPropagation();
+    if (chats[index]) {
+      setRenameChatId(chats[index].id);
+      setRenameInitialTitle(chats[index].title || 'New Chat');
+      setShowRenameModal(true);
+    }
+    setActiveMenuIndex(null);
+  };
+
+  const handleRenameSubmit = async (newTitle: string) => {
+    if (!renameChatId) return;
+
+    try {
+      // Optimistic update
+      setChats(chats.map(c => c.id === renameChatId ? { ...c, title: newTitle } : c));
+      await updateConversation(renameChatId, { title: newTitle });
+      
+      // Notify other components (like Header) about the title change if it's the active chat
+      if (location.pathname === `/chat/${renameChatId}`) {
+         window.dispatchEvent(new CustomEvent('conversationTitleUpdated'));
+      }
+    } catch (err) {
+      console.error('Failed to rename chat:', err);
+      // Revert on failure
+      fetchChats(); 
+    }
+    setShowRenameModal(false);
+    setRenameChatId(null);
+  };
+
   const handleDeleteChat = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
@@ -196,8 +302,17 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
       leftPos = parentRect.right - 200;
     }
 
+    const menuHeight = 120; // Approximate height of the menu
+    let topPos = buttonRect.bottom + 4;
+    
+    // Check if menu would overflow bottom of viewport
+    if (topPos + menuHeight > window.innerHeight) {
+      // Position above the button instead
+      topPos = buttonRect.top - menuHeight - 4;
+    }
+
     setMenuPosition({
-      top: buttonRect.bottom + 4,
+      top: topPos,
       left: leftPos,
     });
     setActiveMenuIndex(index);
@@ -283,7 +398,10 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             }}
           >
             <div className={`text-claude-text flex-shrink-0 flex items-center justify-center`}>
-              <IconPlusCircle size={27} />
+              <IconPlusCircle 
+                size={27} 
+                className="transition-all duration-200 group-hover:brightness-90 group-hover:scale-110 group-hover:-rotate-3" 
+              />
             </div>
             <span
               className={`font-medium leading-none mt-0.5 transition-opacity duration-200 text-left ${isCollapsed ? 'opacity-0 w-0 hidden' : 'opacity-100 block'}`}
@@ -318,8 +436,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
               <img
                 src={searchIconImg}
                 alt="Search"
-                style={{ width: '24px', height: '24px' }}
-                className="object-contain dark:invert transition-[filter] duration-200 opacity-60"
+                style={{ width: '16px', height: '16px' }}
+                className="object-contain dark:invert transition-[filter] duration-200"
               />
             </div>
             <span
@@ -347,7 +465,12 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             {NAV_ITEMS.map((item) => (
               <button
                 key={item.label}
-                className="w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors font-medium group overflow-hidden whitespace-nowrap"
+                onClick={() => {
+                  if (item.label === 'Chats') {
+                    navigate('/chats');
+                  }
+                }}
+                className={`w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors font-medium group overflow-hidden whitespace-nowrap ${location.pathname === '/chats' && item.label === 'Chats' ? 'bg-claude-hover' : ''}`}
                 style={{
                   paddingTop: '2px',
                   paddingBottom: '2px',
@@ -461,7 +584,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
           >
             <div
               className="rounded-full bg-claude-avatar text-claude-avatarText flex items-center justify-center text-xs font-medium flex-shrink-0"
-              style={{ width: `${tunerConfig?.userAvatarSize || 28}px`, height: `${tunerConfig?.userAvatarSize || 28}px` }}
+              style={{ width: `${tunerConfig?.userAvatarSize || 32}px`, height: `${tunerConfig?.userAvatarSize || 32}px` }}
             >
               {userUser?.nickname?.charAt(0).toUpperCase() || 'U'}
             </div>
@@ -469,11 +592,11 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
               <div className="text-left overflow-hidden">
                 <div
                   className="font-medium text-claude-text leading-none"
-                  style={{ fontSize: `${tunerConfig?.userNameSize || 13}px` }}
+                  style={{ fontSize: `${tunerConfig?.userNameSize || 15}px` }}
                 >
                   {userUser?.nickname || 'User'}
                 </div>
-                <div className="text-[11px] text-claude-textSecondary mt-0.5 leading-none">{planLabel}</div>
+                <div className="text-[13px] text-claude-textSecondary mt-0.5 leading-none">{planLabel}</div>
               </div>
               <ChevronUp size={16} className="text-claude-textSecondary" />
             </div>
@@ -526,9 +649,9 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
               <div className="py-1">
                 <button
                   onClick={() => { setShowUserMenu(false); setShowLogoutConfirm(true); }}
-                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-[#B9382C] hover:bg-red-50 transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-2 text-[13px] text-claude-text hover:bg-claude-hover transition-colors"
                 >
-                  <LogOut size={16} className="text-[#B9382C]" />
+                  <LogOut size={16} className="text-claude-textSecondary" />
                   Log out
                 </button>
               </div>
@@ -552,7 +675,10 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
               <IconStarOutline size={16} className="text-claude-textSecondary group-hover:text-claude-text" />
               <span className="text-[13px] text-claude-text">Star</span>
             </button>
-            <button className="flex items-center gap-3 px-3 py-2 hover:bg-claude-hover text-left w-full transition-colors group">
+            <button 
+              onClick={(e) => handleRenameClick(e, activeMenuIndex as number)}
+              className="flex items-center gap-3 px-3 py-2 hover:bg-claude-hover text-left w-full transition-colors group"
+            >
               <IconPencil size={16} className="text-claude-textSecondary group-hover:text-claude-text" />
               <span className="text-[13px] text-claude-text">Rename</span>
             </button>
@@ -573,6 +699,17 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
         isOpen={showSearch} 
         onClose={() => setShowSearch(false)} 
         chats={chats} 
+      />
+
+      {/* Rename Modal */}
+      <RenameModal
+        isOpen={showRenameModal}
+        onClose={() => {
+          setShowRenameModal(false);
+          setRenameChatId(null);
+        }}
+        onSave={handleRenameSubmit}
+        initialTitle={renameInitialTitle}
       />
 
       {/* Logout Confirmation Modal */}

@@ -243,7 +243,20 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
 
     const formatTime = (t: string) => {
       if (!t) return '';
-      const d = new Date(t + 'Z');
+      let timeStr = t;
+      // Handle SQLite format (space instead of T)
+      if (timeStr.includes(' ') && !timeStr.includes('T')) {
+        timeStr = timeStr.replace(' ', 'T');
+      }
+      // Handle missing timezone (assume UTC if no Z or offset at end)
+      // Regex checks for Z or +HH:MM or -HH:MM or +HHMM or -HHMM at the end
+      if (!/Z$|[+-]\d{2}:?\d{2}$/.test(timeStr)) {
+        timeStr += 'Z';
+      }
+      
+      const d = new Date(timeStr);
+      if (isNaN(d.getTime())) return 'Invalid Date';
+      
       return d.toLocaleString('en-US', {
         month: 'short',
         day: 'numeric',
@@ -550,7 +563,7 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
                 <select
                   value={defaultModelBase}
                   onChange={e => applyDefaultModel(e.target.value, defaultModelIsThinking)}
-                  className="w-full px-3 py-2 bg-claude-input border border-claude-border rounded-md text-[14px] text-claude-text focus:outline-none focus:border-[#D97757] focus:ring-1 focus:ring-[#D97757] appearance-none transition-all"
+                  className="w-full px-3 py-2 bg-claude-input border border-claude-border rounded-md text-[14px] text-claude-text focus:outline-none focus:border-blue-600 appearance-none transition-all"
                 >
                   {MODEL_BASES.map(m => (
                     <option key={m.base} value={m.base}>{m.label}</option>
@@ -571,7 +584,7 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
               </div>
               <button
                 onClick={() => applyDefaultModel(defaultModelBase, !defaultModelIsThinking)}
-                className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${defaultModelIsThinking ? 'bg-[#D97757]' : 'bg-[#E5E5E5]'}`}
+                className={`w-10 h-6 rounded-full relative transition-colors duration-200 ${defaultModelIsThinking ? 'bg-blue-600' : 'bg-[#E5E5E5]'}`}
               >
                 <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${defaultModelIsThinking ? 'left-5' : 'left-1'}`} />
               </button>

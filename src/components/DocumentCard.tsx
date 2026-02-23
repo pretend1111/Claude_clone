@@ -81,7 +81,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ document, onOpen }) => {
   return (
     <div
       onClick={() => onOpen(document)}
-      className="group/card flex items-center p-3 gap-3 border border-claude-border rounded-xl hover:bg-claude-hover dark:hover:bg-[#2A2A28] hover:border-[#CCC] dark:hover:border-[#40403E] transition-all cursor-pointer w-full select-none"
+      className="group/card flex items-center p-3 gap-3 border border-claude-border rounded-xl hover:bg-[#FDFCFA] dark:hover:bg-[#2A2A28] hover:border-[#CCC] dark:hover:border-[#40403E] transition-all cursor-pointer w-full select-none"
     >
       {/* Icon Area - Tilted Paper Style */}
       <div className="w-12 h-12 flex items-center justify-center flex-shrink-0">
