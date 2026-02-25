@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Paperclip, ListCollapse, Globe, Clock } from 'lucide-react';
+import { ChevronDown, FileText, ArrowUp, RotateCcw, Pencil, Copy, Check, Paperclip, ListCollapse, Globe, Clock, Info } from 'lucide-react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { IconPlus, IconVoice, IconPencil } from './Icons';
 import ClaudeLogo from './ClaudeLogo';
@@ -113,10 +113,10 @@ const MessageList = React.memo<MessageListProps>(({
           )}
           {msg.role === 'user' ? (
             editingMessageIdx === idx ? (
-              <div className="w-full">
-                <div className="bg-[#F0EEE7] dark:bg-claude-btnHover rounded-2xl px-5 py-3.5 text-[16px] leading-relaxed font-sans">
+              <div className="w-full bg-[#F0EEE7] dark:bg-claude-btnHover rounded-xl p-3 border border-black/5 dark:border-white/10">
+                <div className="bg-white dark:bg-black/20 rounded-lg border border-black/10 dark:border-white/10 focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all p-3">
                   <textarea
-                    className="w-full bg-transparent text-claude-text outline-none resize-none font-sans text-[16px] leading-relaxed"
+                    className="w-full bg-transparent text-claude-text outline-none resize-none text-[16px] leading-relaxed font-sans block"
                     value={editingContent}
                     onChange={(e) => {
                       onSetEditingContent(e.target.value);
@@ -134,13 +134,27 @@ const MessageList = React.memo<MessageListProps>(({
                     style={{ minHeight: '60px' }}
                   />
                 </div>
-                <div className="flex items-center justify-between mt-2">
-                  <span className="text-[13px] text-claude-textSecondary">
-                    Submitting will replace this response and all following messages
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button onClick={onEditCancel} className="px-4 py-1.5 text-[13px] font-medium text-claude-text bg-claude-btnHover hover:bg-claude-hover rounded-lg transition-colors">Cancel</button>
-                    <button onClick={onEditSave} disabled={!editingContent.trim()} className="px-4 py-1.5 text-[13px] font-medium text-white bg-[#C6613F] hover:bg-[#D97757] rounded-lg transition-colors disabled:opacity-40">Send</button>
+                <div className="flex items-start justify-between mt-3 px-1 gap-4">
+                  <div className="flex items-start gap-2 text-claude-textSecondary text-[13px] leading-tight pt-1">
+                    <Info size={14} className="mt-0.5 shrink-0" />
+                    <span>
+                      Editing this message will create a new conversation branch. You can switch between branches using the arrow navigation buttons.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button 
+                      onClick={onEditCancel} 
+                      className="px-3 py-1.5 text-[13px] font-medium text-claude-text bg-white dark:bg-claude-bg border border-black/10 dark:border-white/10 hover:bg-gray-50 dark:hover:bg-claude-hover rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={onEditSave} 
+                      disabled={!editingContent.trim() || editingContent === msg.content} 
+                      className="px-3 py-1.5 text-[13px] font-medium text-white bg-claude-text hover:bg-claude-textSecondary rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      Save
+                    </button>
                   </div>
                 </div>
               </div>
@@ -148,43 +162,45 @@ const MessageList = React.memo<MessageListProps>(({
               <div className="flex flex-col items-end">
                 {msg.attachments && msg.attachments.length > 0 && (
                   <div className="max-w-[85%] w-fit mb-1">
-                    <MessageAttachments attachments={msg.attachments} />
+                    <MessageAttachments attachments={msg.attachments} onOpenDocument={onOpenDocument} />
                   </div>
                 )}
-                <div className="max-w-[85%] w-fit relative">
-                  <div
-                    className="bg-[#F0EEE7] dark:bg-claude-btnHover text-claude-text px-5 py-2.5 text-[16px] leading-relaxed font-sans whitespace-pre-wrap break-words relative overflow-hidden"
-                    style={{
-                      maxHeight: expandedMessages.has(idx) ? 'none' : '300px',
-                      borderRadius: ((() => {
+                {msg.content && msg.content.trim() !== '' && (
+                  <div className="max-w-[85%] w-fit relative">
+                    <div
+                      className="bg-[#F0EEE7] dark:bg-claude-btnHover text-claude-text px-3.5 py-2.5 text-[16px] leading-relaxed font-sans whitespace-pre-wrap break-words relative overflow-hidden"
+                      style={{
+                        maxHeight: expandedMessages.has(idx) ? 'none' : '300px',
+                        borderRadius: ((() => {
+                          const el = messageContentRefs.current.get(idx);
+                          const isOverflow = el && el.scrollHeight > 300;
+                          return isOverflow;
+                        })()) ? '16px 16px 0 0' : '16px',
+                      }}
+                      ref={(el) => { if (el) messageContentRefs.current.set(idx, el); }}
+                    >
+                      {msg.content}
+                      {!expandedMessages.has(idx) && (() => {
                         const el = messageContentRefs.current.get(idx);
-                        const isOverflow = el && el.scrollHeight > 300;
-                        return isOverflow;
-                      })()) ? '16px 16px 0 0' : '16px',
-                    }}
-                    ref={(el) => { if (el) messageContentRefs.current.set(idx, el); }}
-                  >
-                    {msg.content}
-                    {!expandedMessages.has(idx) && (() => {
+                        return el && el.scrollHeight > 300;
+                      })() && (
+                          <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#F0EEE7] dark:from-claude-btnHover to-transparent pointer-events-none" />
+                        )}
+                    </div>
+                    {(() => {
                       const el = messageContentRefs.current.get(idx);
-                      return el && el.scrollHeight > 300;
-                    })() && (
-                        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[#F0EEE7] dark:from-claude-btnHover to-transparent pointer-events-none" />
-                      )}
+                      const isOverflow = el && el.scrollHeight > 300;
+                      if (!isOverflow) return null;
+                      return (
+                        <div className="bg-[#F0EEE7] dark:bg-claude-btnHover rounded-b-2xl px-3.5 pb-3 pt-1 -mt-[1px] relative" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
+                          <button onClick={() => onToggleExpand(idx)} className="text-[13px] text-claude-textSecondary hover:text-claude-text transition-colors">
+                            {expandedMessages.has(idx) ? 'Show less' : 'Show more'}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
-                  {(() => {
-                    const el = messageContentRefs.current.get(idx);
-                    const isOverflow = el && el.scrollHeight > 300;
-                    if (!isOverflow) return null;
-                    return (
-                      <div className="bg-[#F0EEE7] dark:bg-claude-btnHover rounded-b-2xl px-5 pb-3 pt-1 -mt-[1px] relative" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
-                        <button onClick={() => onToggleExpand(idx)} className="text-[13px] text-claude-textSecondary hover:text-claude-text transition-colors">
-                          {expandedMessages.has(idx) ? 'Show less' : 'Show more'}
-                        </button>
-                      </div>
-                    );
-                  })()}
-                </div>
+                )}
                 <div className="flex items-center gap-1.5 mt-1.5 pr-1">
                   {msg.created_at && (
                     <span className="text-[12px] text-claude-textSecondary mr-1">{formatMessageTime(msg.created_at)}</span>
@@ -200,7 +216,7 @@ const MessageList = React.memo<MessageListProps>(({
               </div>
             )
           ) : (
-            <div className="px-1 text-claude-text text-[16px] leading-relaxed font-sans mt-2">
+            <div className="px-1 text-claude-text text-[16.5px] leading-normal mt-2">
               {msg.thinking && (
                 <div className="mb-4">
                   <div
@@ -216,7 +232,7 @@ const MessageList = React.memo<MessageListProps>(({
                     {msg.isThinking && (
                       <ClaudeLogo autoAnimate style={{ width: '30px', height: '30px' }} />
                     )}
-                    <span className={`text-[14px] ${msg.isThinking ? 'animate-shimmer-text' : 'text-claude-text'}`}>
+                    <span className={`text-[14px] ${msg.isThinking ? 'animate-shimmer-text' : 'text-claude-textSecondary'}`}>
                       {(() => {
                         if (msg.thinking_summary) return msg.thinking_summary;
                         const text = (msg.thinking || '').trim();
@@ -232,7 +248,7 @@ const MessageList = React.memo<MessageListProps>(({
                   {msg.isThinkingExpanded && (
                     <div className="mt-2 ml-1 pl-4 border-l-2 border-claude-border">
                       <div className="flex gap-3">
-                        <div className="text-claude-textSecondary text-[14px] leading-relaxed whitespace-pre-wrap">
+                        <div className="text-claude-textSecondary text-[14px] leading-normal whitespace-pre-wrap">
                           {msg.thinking}
                         </div>
                       </div>
@@ -377,7 +393,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   const inputBarWidth = 768;
   const inputBarMinHeight = 32;
   const inputBarRadius = 22;
-  const inputBarBottom = 26;
+  const inputBarBottom = 0;
   const inputBarBaseHeight = inputBarMinHeight + 16; // border-box: content + padding (pt-4=16px + pb-0=0px)
   const textareaHeightVal = useRef(inputBarBaseHeight);
 
@@ -651,6 +667,12 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
                 if (final_.title) setConversationTitle(final_.title);
                 return;
               }
+              // 跨进程轮询：内容在另一个进程，从数据库拉最新消息
+              if (s.crossProcess) {
+                const fresh = await getConversation(conversationId);
+                setMessages(fresh.messages || []);
+                return;
+              }
               // 更新进度
               setMessages(prev => {
                 const newMsgs = [...prev];
@@ -726,6 +748,8 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
       file_type: f.fileType || 'text',
       file_name: f.fileName,
       mime_type: f.mimeType,
+      file_size: f.size,
+      line_count: f.lineCount,
     }));
 
     // 清空 pendingFiles 并释放预览 URL
@@ -879,7 +903,18 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           return newMsgs;
         });
       },
-      (event, message) => {
+      (event, message, data) => {
+        // Handle metadata (update user message ID)
+        if (event === 'metadata' && data && data.user_message_id) {
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const userIdx = newMsgs.length - 2;
+            if (userIdx >= 0 && newMsgs[userIdx].role === 'user') {
+              newMsgs[userIdx] = { ...newMsgs[userIdx], id: data.user_message_id };
+            }
+            return newMsgs;
+          });
+        }
         // Handle system/status events (e.g. web search status)
         if (event === 'status' && message) {
           // 非搜索类状态不设置为 searchStatus
@@ -1148,7 +1183,17 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           return newMsgs;
         });
       },
-      (event, message) => {
+      (event, message, data) => {
+        if (event === 'metadata' && data && data.user_message_id) {
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const userIdx = newMsgs.length - 2;
+            if (userIdx >= 0 && newMsgs[userIdx].role === 'user') {
+              newMsgs[userIdx] = { ...newMsgs[userIdx], id: data.user_message_id };
+            }
+            return newMsgs;
+          });
+        }
         if (event === 'thinking_summary' && message) {
           setMessages(prev => {
             const newMsgs = [...prev];
@@ -1273,7 +1318,17 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
           return newMsgs;
         });
       },
-      (event, message) => {
+      (event, message, data) => {
+        if (event === 'metadata' && data && data.user_message_id) {
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            const userIdx = newMsgs.length - 2;
+            if (userIdx >= 0 && newMsgs[userIdx].role === 'user') {
+              newMsgs[userIdx] = { ...newMsgs[userIdx], id: data.user_message_id };
+            }
+            return newMsgs;
+          });
+        }
         if (event === 'thinking_summary' && message) {
           setMessages(prev => {
             const newMsgs = [...prev];
@@ -1332,6 +1387,20 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
 
       setPendingFiles(prev => [...prev, pending]);
 
+      // Calculate lines for text files
+      const textExtensions = /\.(txt|md|csv|json|xml|yaml|yml|js|jsx|ts|tsx|py|java|cpp|c|h|cs|go|rs|rb|php|swift|kt|scala|html|css|scss|less|sql|sh|bash|vue|svelte|lua|r|m|pl|ex|exs)$/i;
+      if (file.size < 5 * 1024 * 1024 && (file.type.startsWith('text/') || textExtensions.test(file.name))) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target?.result as string;
+          if (text) {
+             const lines = text.split(/\r\n|\r|\n/).length;
+             setPendingFiles(prev => prev.map(f => f.id === id ? { ...f, lineCount: lines } : f));
+          }
+        };
+        reader.readAsText(file);
+      }
+
       uploadFile(file, (percent) => {
         setPendingFiles(prev => prev.map(f => f.id === id ? { ...f, progress: percent } : f));
       }).then((result) => {
@@ -1386,18 +1455,31 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
+    // 1. 优先检查图片
     const items = e.clipboardData?.items;
-    if (!items) return;
-    const imageFiles: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.startsWith('image/')) {
-        const file = items[i].getAsFile();
-        if (file) imageFiles.push(file);
+    if (items) {
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith('image/')) {
+          const file = items[i].getAsFile();
+          if (file) imageFiles.push(file);
+        }
+      }
+      if (imageFiles.length > 0) {
+        e.preventDefault();
+        handleFilesSelected(imageFiles);
+        return;
       }
     }
-    if (imageFiles.length > 0) {
+
+    // 2. 检查长文本 (超过 1000 字符自动转为附件)
+    const text = e.clipboardData.getData('text');
+    if (text && text.length > 1000) {
       e.preventDefault();
-      handleFilesSelected(imageFiles);
+      // 创建一个名为 "Pasted-Text.txt" 的文件
+      const blob = new Blob([text], { type: 'text/plain' });
+      const file = new File([blob], 'Pasted-Text.txt', { type: 'text/plain' });
+      handleFilesSelected([file]);
     }
   };
 
@@ -1407,7 +1489,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
   // MODE 1: Landing Page (No ID)
   if (!activeId && messages.length === 0) {
     return (
-      <div className={`flex-1 bg-claude-bg h-screen flex flex-col relative overflow-hidden text-claude-text ${showEntranceAnimation ? 'animate-slide-in' : ''}`}>
+      <div className={`flex-1 bg-claude-bg h-screen flex flex-col relative overflow-hidden text-claude-text chat-font-scope ${showEntranceAnimation ? 'animate-slide-in' : ''}`}>
         
         {/* Centered Content */}
         <div
@@ -1453,7 +1535,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
               }}
             />
             <div
-              className={`bg-claude-input border shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col max-h-[60vh] ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
+              className={`bg-claude-input border shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col max-h-[60vh] font-sans ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
               style={{ borderRadius: `${tunerConfig?.inputRadius || 16}px` }}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -1463,8 +1545,8 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
                 <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
                 <textarea
                   ref={inputRef}
-                  className="w-full px-4 pt-4 pb-2 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none font-sans resize-none overflow-hidden bg-transparent"
-                  style={{ minHeight: '72px', borderRadius: `${tunerConfig?.inputRadius || 16}px ${tunerConfig?.inputRadius || 16}px 0 0` }}
+                  className="w-full pl-5 pr-4 pt-5 pb-1 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none resize-none overflow-hidden bg-transparent font-sans"
+                  style={{ minHeight: '48px', borderRadius: `${tunerConfig?.inputRadius || 16}px ${tunerConfig?.inputRadius || 16}px 0 0` }}
                   placeholder="How can I help you today?"
                   value={inputText}
                   onChange={(e) => {
@@ -1558,7 +1640,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
         </div>
 
         {/* 免责声明 - 固定在最底部 */}
-        <div className="absolute bottom-0 left-0 z-10 bg-claude-bg text-center text-[12px] text-claude-textSecondary py-2 pointer-events-none" style={{ right: `${scrollbarWidth}px` }}>
+        <div className="absolute bottom-0 left-0 z-10 bg-claude-bg text-center text-[12px] text-claude-textSecondary py-2 pointer-events-none font-sans" style={{ right: `${scrollbarWidth}px` }}>
           Claude is AI and can make mistakes. Please double-check responses.
         </div>
 
@@ -1581,7 +1663,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
                 }}
               />
               <div
-                className={`bg-claude-input border shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
+                className={`bg-claude-input border shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] hover:border-[#CCC] dark:hover:border-[#5a5a58] focus-within:shadow-[0_2px_8px_rgba(0,0,0,0.08)] focus-within:border-[#CCC] dark:focus-within:border-[#5a5a58] transition-all duration-200 flex flex-col font-sans ${isDragging ? 'border-[#D97757] bg-orange-50/30' : 'border-claude-border dark:border-[#3a3a38]'}`}
                 style={{ borderRadius: `${inputBarRadius}px` }}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -1590,7 +1672,7 @@ const MainContent = ({ onNewChat, resetKey, tunerConfig, onOpenDocument, onArtif
                 <FileUploadPreview files={pendingFiles} onRemove={handleRemoveFile} />
                 <textarea
                   ref={inputRef}
-                  className="w-full px-4 pt-4 pb-0 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none font-sans resize-none bg-transparent"
+                  className="w-full px-4 pt-4 pb-0 text-claude-text placeholder:text-claude-textSecondary text-[16px] outline-none resize-none bg-transparent font-sans"
                   style={{ height: `${inputBarBaseHeight}px`, minHeight: '16px', boxSizing: 'border-box', overflowY: 'hidden' }}
                   placeholder="How can I help you today?"
                   value={inputText}

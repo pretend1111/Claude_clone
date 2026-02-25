@@ -52,10 +52,19 @@ const DraggableDivider: React.FC<DraggableDividerProps> = ({ onResize, container
   return (
     <div
       onMouseDown={handleMouseDown}
-      className={`w-[12px] -ml-[6px] flex-shrink-0 cursor-col-resize z-50 flex justify-end h-full group outline-none`}
+      className="w-[16px] -ml-[8px] flex-shrink-0 cursor-col-resize z-50 flex items-center justify-center h-full group outline-none relative"
     >
-      <div className={`w-[1px] h-full transition-colors duration-200 ${isDragging ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'
-        }`} />
+      {/* Visual Guide Line (on hover/drag) */}
+      <div className={`absolute top-0 bottom-0 w-[1px] transition-colors duration-200 ${
+        isDragging ? 'bg-blue-500' : 'bg-transparent group-hover:bg-blue-400'
+      }`} />
+
+      {/* Handle Pill */}
+      <div className={`relative z-10 w-[4px] h-10 rounded-full shadow-sm transition-all duration-200 ${
+        isDragging 
+          ? 'bg-blue-500' 
+          : 'bg-[#E5E5E5] dark:bg-[#404040] group-hover:bg-blue-400'
+      }`} />
     </div>
   );
 };

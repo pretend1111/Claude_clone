@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, FileText, File, Loader2, Code2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 
 export interface PendingFile {
   id: string;
@@ -13,6 +13,7 @@ export interface PendingFile {
   status: 'uploading' | 'done' | 'error';
   error?: string;
   previewUrl?: string;
+  lineCount?: number;
 }
 
 interface FileUploadPreviewProps {
@@ -26,85 +27,63 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
-function getFileIcon(fileName: string, mimeType: string) {
-  const ext = fileName.split('.').pop()?.toLowerCase() || '';
-
-  // Word
-  if (ext === 'docx' || ext === 'doc' || ext === 'odt' || ext === 'rtf') {
-    return <div className="w-10 h-10 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0 text-blue-600 dark:text-blue-400 font-bold text-sm">W</div>;
-  }
-  // Excel
-  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
-    return <div className="w-10 h-10 rounded bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0 text-green-600 dark:text-green-400 font-bold text-sm">X</div>;
-  }
-  // PPT
-  if (ext === 'pptx' || ext === 'ppt') {
-    return <div className="w-10 h-10 rounded bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center flex-shrink-0 text-orange-600 dark:text-orange-400 font-bold text-sm">P</div>;
-  }
-  // PDF
-  if (ext === 'pdf' || mimeType === 'application/pdf') {
-    return <div className="w-10 h-10 rounded bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0"><FileText size={20} className="text-red-500 dark:text-red-400" /></div>;
-  }
-  // EPUB
-  if (ext === 'epub') {
-    return <div className="w-10 h-10 rounded bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0 text-purple-600 dark:text-purple-400 font-bold text-sm">E</div>;
-  }
-  // 代码文件
-  const codeExts = ['js', 'jsx', 'ts', 'tsx', 'py', 'java', 'cpp', 'c', 'h', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt', 'scala', 'vue', 'svelte', 'lua', 'r', 'sql', 'sh', 'bash', 'html', 'css', 'scss', 'less'];
-  if (codeExts.includes(ext)) {
-    return <div className="w-10 h-10 rounded bg-gray-100 dark:bg-gray-800 flex items-center justify-center flex-shrink-0"><Code2 size={20} className="text-gray-600 dark:text-gray-400" /></div>;
-  }
-  // 其他文本
-  return <div className="w-10 h-10 rounded bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0"><File size={20} className="text-blue-500 dark:text-blue-400" /></div>;
-}
-
 const FileUploadPreview: React.FC<FileUploadPreviewProps> = ({ files, onRemove }) => {
   if (files.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-2 px-4 pt-3 pb-1 max-h-[30vh] overflow-y-auto">
-      {files.map((f) => (
-        <div
-          key={f.id}
-          className="relative group/file flex items-center gap-2 bg-claude-hover border border-claude-border rounded-lg px-3 py-2 max-w-[200px]"
-        >
-          {/* 缩略图或图标 */}
-          {f.previewUrl ? (
-            <img
-              src={f.previewUrl}
-              alt={f.fileName}
-              className="w-10 h-10 rounded object-cover flex-shrink-0"
-            />
-          ) : (
-            getFileIcon(f.fileName, f.mimeType)
-          )}
+    <div className="flex flex-wrap gap-3 px-4 pt-3 pb-1 max-h-[30vh] overflow-y-auto">
+      {files.map((f) => {
+        const isImage = !!f.previewUrl && f.mimeType.startsWith('image/');
+        const ext = f.fileName.split('.').pop()?.toUpperCase() || '?';
 
-          {/* 文件信息 */}
-          <div className="min-w-0 flex-1">
-            <div className="text-[13px] text-claude-text truncate">{f.fileName}</div>
-            <div className="text-[11px] text-claude-textSecondary">
-              {f.status === 'uploading' ? (
-                <span className="flex items-center gap-1">
-                  <Loader2 size={10} className="animate-spin" />
-                  {f.progress}%
-                </span>
-              ) : f.status === 'error' ? (
-                <span className="text-red-500">{f.error || '上传失败'}</span>
-              ) : (
-                formatSize(f.size)
-              )}
-            </div>
-          </div>
-
-          {/* 删除按钮 */}
-          <button
-            onClick={() => onRemove(f.id)}
-            className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-claude-textSecondary text-white rounded-full flex items-center justify-center opacity-0 group-hover/file:opacity-100 transition-opacity hover:bg-claude-text"
+        return (
+          <div
+            key={f.id}
+            className={`relative group/file flex-shrink-0 w-28 h-28 rounded-xl border border-gray-200 hover:border-gray-300 dark:border-[#5B5B56] dark:hover:border-gray-400 overflow-hidden transition-all ${
+              isImage ? '' : 'bg-white dark:bg-claude-input p-3 flex flex-col justify-between'
+            }`}
           >
-            <X size={12} />
-          </button>
-        </div>
-      ))}
+            {isImage && f.previewUrl ? (
+              <img
+                src={f.previewUrl}
+                alt={f.fileName}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <>
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium text-claude-text truncate" title={f.fileName}>
+                    {f.fileName}
+                  </div>
+                  <div className="text-[11px] text-claude-textSecondary mt-0.5">
+                    {f.status === 'uploading' ? (
+                      <span className="flex items-center gap-1">
+                        <Loader2 size={10} className="animate-spin" />
+                        {f.progress}%
+                      </span>
+                    ) : f.status === 'error' ? (
+                       <span className="text-red-500">Failed</span>
+                    ) : (
+                      f.lineCount !== undefined ? `${f.lineCount} lines` : formatSize(f.size)
+                    )}
+                  </div>
+                </div>
+                
+                <div className="self-start px-1.5 py-0.5 text-[10px] font-medium border border-gray-200 dark:border-[#5B5B56] bg-gray-50 dark:bg-claude-input rounded text-claude-textSecondary uppercase">
+                  {ext}
+                </div>
+              </>
+            )}
+
+            <button
+              onClick={() => onRemove(f.id)}
+              className="absolute top-1 right-1 w-6 h-6 bg-black/50 hover:bg-black/70 text-white rounded-full flex items-center justify-center opacity-0 group-hover/file:opacity-100 transition-opacity backdrop-blur-sm"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 };

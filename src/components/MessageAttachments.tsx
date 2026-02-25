@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { FileText, File, X, Code2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { FileText, File, X, Code2, Download } from 'lucide-react';
 import { getAttachmentUrl } from '../api';
 
 interface Attachment {
@@ -7,90 +7,174 @@ interface Attachment {
   file_type: string;
   file_name: string;
   mime_type: string;
+  file_size?: number;
+  line_count?: number;
 }
+
+import { DocumentInfo } from './DocumentCard';
 
 interface MessageAttachmentsProps {
   attachments: Attachment[];
+  onOpenDocument?: (doc: DocumentInfo) => void;
 }
 
-function getDocIcon(fileName: string, mimeType: string) {
+// 获取文件扩展名
+function getFileExtension(fileName: string): string {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
-  if (ext === 'docx' || ext === 'doc' || ext === 'odt' || ext === 'rtf') {
-    return <span className="text-blue-600 font-bold text-xs">W</span>;
-  }
-  if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') {
-    return <span className="text-green-600 font-bold text-xs">X</span>;
-  }
-  if (ext === 'pptx' || ext === 'ppt') {
-    return <span className="text-orange-600 font-bold text-xs">P</span>;
-  }
-  if (ext === 'pdf' || mimeType === 'application/pdf') {
-    return <FileText size={18} className="text-red-500 flex-shrink-0" />;
-  }
-  if (ext === 'epub') {
-    return <span className="text-purple-600 font-bold text-xs">E</span>;
-  }
-  const codeExts = ['js', 'jsx', 'ts', 'tsx', 'py', 'java', 'cpp', 'c', 'h', 'cs', 'go', 'rs', 'rb', 'php', 'swift', 'kt', 'scala', 'vue', 'svelte', 'lua', 'r', 'sql', 'sh', 'bash', 'html', 'css', 'scss', 'less'];
-  if (codeExts.includes(ext)) {
-    return <Code2 size={18} className="text-gray-600 flex-shrink-0" />;
-  }
-  return <File size={18} className="text-blue-500 flex-shrink-0" />;
+  return ext.toUpperCase();
 }
 
-const MessageAttachments: React.FC<MessageAttachmentsProps> = ({ attachments }) => {
+// 格式化文件大小
+function formatFileSize(bytes?: number): string {
+  if (!bytes) return '';
+  if (bytes > 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  } else if (bytes > 1024) {
+    return `${(bytes / 1024).toFixed(1)}KB`;
+  } else {
+    return `${bytes}B`;
+  }
+}
+
+const AttachmentCard: React.FC<{ attachment: Attachment; onClick: () => void }> = ({ attachment, onClick }) => {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const isImage = attachment.file_type === 'image' || attachment.mime_type.startsWith('image/');
+
+  useEffect(() => {
+    if (isImage) {
+      const url = getAttachmentUrl(attachment.id);
+      const token = localStorage.getItem('auth_token');
+      setThumbnailUrl(`${url}${url.includes('?') ? '&' : '?'}token=${token}`);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+  }, [attachment.id, isImage]);
+
+  // 图片卡片保持不变
+  if (isImage) {
+    return (
+      <div 
+        className="relative w-28 h-28 rounded-xl overflow-hidden cursor-pointer border border-gray-200 hover:border-gray-300 dark:border-[#5B5B56] dark:hover:border-gray-400 group bg-white dark:bg-claude-input shadow-sm hover:opacity-90 transition-all"
+        onClick={onClick}
+      >
+        <img 
+          src={thumbnailUrl || ''} 
+          alt={attachment.file_name} 
+          className="w-full h-full object-cover"
+        />
+      </div>
+    );
+  }
+
+  // 新的文档卡片样式
+  const ext = getFileExtension(attachment.file_name);
+
+  return (
+    <div 
+      className="relative w-28 h-28 rounded-xl cursor-pointer border border-gray-200 hover:border-gray-300 dark:border-[#5B5B56] dark:hover:border-gray-400 group overflow-hidden transition-all bg-white dark:bg-claude-input p-3 flex flex-col justify-between shadow-sm"
+      onClick={onClick}
+      title={attachment.file_name}
+    >
+      {loading ? (
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-300 border-t-blue-500" />
+        </div>
+      ) : (
+        <>
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium text-claude-text truncate" title={attachment.file_name}>
+              {attachment.file_name}
+            </div>
+            <div className="text-[11px] text-claude-textSecondary mt-0.5">
+              {attachment.line_count ? `${attachment.line_count} lines` : (formatFileSize(attachment.file_size) || '文件')}
+            </div>
+          </div>
+
+          <div className="self-start px-1.5 py-0.5 text-[10px] font-medium border border-gray-200 dark:border-[#5B5B56] bg-gray-50 dark:bg-claude-input rounded text-claude-textSecondary uppercase">
+            {ext}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const MessageAttachments: React.FC<MessageAttachmentsProps> = ({ attachments, onOpenDocument }) => {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   if (!attachments || attachments.length === 0) return null;
 
-  const token = localStorage.getItem('auth_token');
+  const handleClick = async (att: Attachment) => {
+    const url = getAttachmentUrl(att.id);
+    const token = localStorage.getItem('auth_token');
+    
+    // 图片：打开灯箱
+    if (att.file_type === 'image' || att.mime_type.startsWith('image/')) {
+      setLightboxUrl(`${url}${url.includes('?') ? '&' : '?'}token=${token}`);
+      return;
+    }
+
+    // 代码/文本文件：尝试在右侧面板打开
+    const textExtensions = ['SH', 'MD', 'PY', 'JS', 'TXT', 'HTML', 'CSS', 'JSON', 'XML', 'YAML', 'TS', 'TSX', 'JSX', 'JAVA', 'CPP', 'C', 'H', 'CS', 'GO', 'RS', 'RB', 'PHP', 'SQL', 'VUE', 'SVELTE', 'LUA'];
+    const ext = getFileExtension(att.file_name);
+    
+    if (onOpenDocument && (textExtensions.includes(ext) || att.mime_type.startsWith('text/'))) {
+      try {
+        // Fetch content
+        const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}token=${token}`);
+        if (res.ok) {
+          const content = await res.text();
+          onOpenDocument({
+            id: att.id,
+            title: att.file_name,
+            filename: att.file_name,
+            url: url,
+            content: content,
+            format: 'markdown', // Use markdown renderer for code highlighting
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to fetch file content', err);
+      }
+    }
+
+    // 默认：下载文件
+    window.open(url, '_blank');
+  };
 
   return (
     <>
       <div className="flex flex-wrap gap-2 mb-2">
-        {attachments.map((att) => {
-          const url = getAttachmentUrl(att.id);
-          const authedUrl = `${url}${url.includes('?') ? '&' : '?'}token=${token}`;
-
-          if (att.file_type === 'image') {
-            return (
-              <img
-                key={att.id}
-                src={authedUrl}
-                alt={att.file_name}
-                className="w-20 h-20 rounded-lg object-cover cursor-pointer hover:opacity-80 transition-opacity border border-[#E5E4E0]"
-                onClick={() => setLightboxUrl(authedUrl)}
-              />
-            );
-          }
-
-          return (
-            <div
-              key={att.id}
-              className="flex items-center gap-2 bg-[#F5F4F0] border border-[#E5E4E0] rounded-lg px-3 py-2"
-            >
-              {getDocIcon(att.file_name, att.mime_type)}
-              <span className="text-[13px] text-[#555] truncate max-w-[150px]">{att.file_name}</span>
-            </div>
-          );
-        })}
+        {attachments.map((att) => (
+          <AttachmentCard 
+            key={att.id} 
+            attachment={att} 
+            onClick={() => handleClick(att)} 
+          />
+        ))}
       </div>
 
       {/* 灯箱 */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center"
+          className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center backdrop-blur-sm"
           onClick={() => setLightboxUrl(null)}
         >
           <button
-            className="absolute top-4 right-4 text-white/80 hover:text-white"
+            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors bg-black/20 hover:bg-black/40 rounded-full p-2"
             onClick={() => setLightboxUrl(null)}
           >
-            <X size={28} />
+            <X size={24} />
           </button>
           <img
             src={lightboxUrl}
             alt="preview"
-            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
         </div>

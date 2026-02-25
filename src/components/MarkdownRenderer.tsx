@@ -180,7 +180,10 @@ const SourcesList: React.FC<{ sources: CitationSource[] }> = ({ sources }) => {
 const CodeBlock: React.FC<{ language: string; code: string; className?: string }> = ({ language, code }) => {
   const [copied, setCopied] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    if (typeof document === 'undefined') return false;
+    return document.documentElement.classList.contains('dark');
+  });
 
   useEffect(() => {
     const checkDark = () => setIsDark(document.documentElement.classList.contains('dark'));
@@ -218,10 +221,10 @@ const CodeBlock: React.FC<{ language: string; code: string; className?: string }
       {hovered && (
         <button
           onClick={handleCopy}
-          className={`absolute top-2 right-2 p-2 rounded-md transition-colors z-10 ${isDark ? 'bg-[#333] text-[#AAA] hover:bg-[#444] hover:text-white' : 'bg-white/80 text-[#666] hover:text-[#333] hover:bg-white'}`}
+          className={`absolute top-2 right-2 p-1.5 rounded-md transition-colors z-10 border ${isDark ? 'bg-[#404040] border-[#555] text-[#CCC] hover:bg-[#505050] hover:text-white' : 'bg-white border-[#E5E5E5] text-[#666] hover:bg-[#F5F5F5] hover:text-[#333]'}`}
           title="复制代码"
         >
-          {copied ? <Check size={18} /> : <Copy size={18} />}
+          {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       )}
       <SyntaxHighlighter
@@ -232,7 +235,9 @@ const CodeBlock: React.FC<{ language: string; code: string; className?: string }
           padding: '12px',
           paddingTop: language ? '4px' : '12px',
           background: 'transparent',
-          fontSize: '14px',
+          fontSize: '15px',
+          border: 'none',
+          boxShadow: 'none',
         }}
         codeTagProps={{
           style: { fontFamily: "Menlo, Monaco, SF Mono, Cascadia Code, Fira Code, Consolas, Courier New, monospace" }
@@ -254,7 +259,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations,
   // 角标通过 SourcesList 和内联 badge 展示
 
   return (
-    <div className="markdown-body text-claude-text text-[16px] leading-relaxed overflow-x-hidden" style={{ fontFamily: "'SF Pro Display', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" }}>
+    <div className="markdown-body text-claude-text text-[16.5px] leading-normal overflow-x-hidden">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[[rehypeKatex, { throwOnError: false, strict: 'ignore' }]]}
@@ -268,7 +273,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations,
           table({ children, ...props }: any) {
             return (
               <div className="overflow-x-auto my-4">
-                <table className="w-full text-[14px]" {...props}>{children}</table>
+                <table className="w-full text-[14.5px]" {...props}>{children}</table>
               </div>
             );
           },
@@ -279,7 +284,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations,
             return <tbody {...props}>{children}</tbody>;
           },
           tr({ children, ...props }: any) {
-            return <tr className="border-b border-black dark:border-white" {...props}>{children}</tr>;
+            return <tr className="border-b border-black dark:border-white last:border-b-0" {...props}>{children}</tr>;
           },
           th({ children, ...props }: any) {
             return <th className="text-left py-2 pr-4 font-semibold text-claude-text" {...props}>{children}</th>;
@@ -295,7 +300,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, citations,
               return <CodeBlock language={language} code={codeText} className={className} {...props} />;
             }
             return (
-              <code className="inline-code px-1.5 py-0.5 rounded text-sm font-mono border border-transparent" {...props}>
+              <code className="inline-code px-1.5 py-0.5 rounded-md text-[14.5px] font-mono border border-transparent leading-none" {...props}>
                 {children}
               </code>
             );

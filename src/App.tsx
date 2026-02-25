@@ -19,6 +19,8 @@ import AdminPlans from './components/admin/AdminPlans';
 import AdminRedemption from './components/admin/AdminRedemption';
 import AdminModels from './components/admin/AdminModels';
 import ChatsPage from './components/ChatsPage';
+import CustomizePage from './components/CustomizePage';
+import ProjectsPage from './components/ProjectsPage';
 
 const ChatHeader = ({
   title,
@@ -221,6 +223,13 @@ const Layout = () => {
     return () => window.removeEventListener('open-upgrade', handler);
   }, []);
 
+  // Collapse sidebar on Customize page
+  useEffect(() => {
+    if (location.pathname === '/customize') {
+      setIsSidebarCollapsed(true);
+    }
+  }, [location.pathname]);
+
   useEffect(() => {
     const token = localStorage.getItem('auth_token');
     if (!token) {
@@ -406,7 +415,7 @@ const Layout = () => {
           {/* Main Content Area - takes remaining width after panel */}
           <div className="flex-1 flex flex-col h-full min-w-0">
             {/* Header - Only render here if NOT in Artifacts-only mode */}
-            {isChatMode && (!showArtifacts || documentPanelDoc) && !showSettings && !showUpgrade && location.pathname !== '/chats' && (
+            {isChatMode && (!showArtifacts || documentPanelDoc) && !showSettings && !showUpgrade && location.pathname !== '/chats' && location.pathname !== '/customize' && location.pathname !== '/projects' && (
               <ChatHeader
                 title={currentChatTitle}
                 showArtifacts={showArtifacts}
@@ -423,6 +432,10 @@ const Layout = () => {
               <UpgradePlan onClose={() => setShowUpgrade(false)} />
             ) : location.pathname === '/chats' ? (
               <ChatsPage />
+            ) : location.pathname === '/customize' ? (
+              <CustomizePage />
+            ) : location.pathname === '/projects' ? (
+              <ProjectsPage />
             ) : (
               <MainContent
                 onNewChat={refreshSidebar}
@@ -485,6 +498,8 @@ const App = () => {
         </Route>
         <Route path="/" element={<Layout />} />
         <Route path="/chats" element={<Layout />} />
+        <Route path="/customize" element={<Layout />} />
+        <Route path="/projects" element={<Layout />} />
         <Route path="/chat/:id" element={<Layout />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

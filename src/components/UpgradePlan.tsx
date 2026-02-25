@@ -299,7 +299,7 @@ const UpgradePlan = ({ onClose }: UpgradePlanProps) => {
               <div className="p-6 rounded-2xl border border-[#C0C0C0] h-full">
                 <h3 className="text-[15px] font-semibold text-[#222] mb-2">额度说明</h3>
                 <p className="text-[13px] text-[#666] mb-4 leading-relaxed">
-                  单看美元可能觉得窗口额度少，但实际上网页对话的 token 消耗速度是远小于 vibe coding 的。所以不能以用 Claude Code 的习惯去看待网页版额度。以下为各套餐 5h 窗口额度的预估对话轮数，每轮对话按 3k input + 2k output + 1k thinking + 1k cache read 估算。大家可以自己做评估，根据自己的需求购买。
+                  以下为各套餐 5h 窗口额度的预估对话轮数，每轮对话按 3k input + 2k output + 1k thinking + 1k cache read 估算。大家可以自己做评估，根据自己的需求购买。
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-[12px] text-[#555]">

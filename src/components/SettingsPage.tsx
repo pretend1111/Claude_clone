@@ -742,19 +742,19 @@ const SettingsPage = ({ onClose }: SettingsPageProps) => {
               <label className="block text-[13px] font-medium text-claude-textSecondary mb-2">聊天字体</label>
               <div className="flex gap-3">
                 {([
-                  { value: 'default', label: '默认', sample: 'Aa', font: 'font-sans' },
+                  { value: 'default', label: '默认', sample: 'Aa', font: 'font-serif-claude' },
                   { value: 'sans', label: 'Sans', sample: 'Aa', font: 'font-sans' },
-                  { value: 'system', label: '系统', sample: 'Aa', font: 'font-mono' }, // approximations for preview
+                  { value: 'system', label: '系统', sample: 'Aa', font: 'font-system' }, // approximations for preview
                   { value: 'dyslexic', label: '阅读障碍', sample: 'Aa', font: 'font-serif' },
                 ] as const).map(opt => (
                   <button
                     key={opt.value}
                     onClick={() => applyFont(opt.value)}
                     className={`
-                      w-32 flex flex-col items-center gap-2 py-3 px-2 rounded-xl border transition-all
+                      w-32 flex flex-col items-center gap-2 py-3 px-2 rounded-lg border-2 transition-all
                       ${chatFont === opt.value
-                        ? 'border-[#3b82f6] bg-claude-input text-claude-text shadow-sm'
-                        : 'border-claude-border bg-claude-input hover:border-claude-textSecondary text-claude-textSecondary hover:text-claude-text'
+                        ? 'border-[#3b82f6] scale-[1.02] bg-claude-input text-claude-text shadow-sm'
+                        : 'border-claude-border bg-claude-input hover:border-[#CCC] text-claude-textSecondary hover:text-claude-text'
                       }
                     `}
                   >

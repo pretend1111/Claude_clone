@@ -49,21 +49,21 @@ const SearchLogItem: React.FC<{ log: SearchLog; defaultOpen?: boolean }> = ({ lo
   }, [defaultOpen]);
 
   return (
-    <div className="relative pl-8 pb-4">
+    <div className="relative pl-8 pb-2">
       {/* Node Icon */}
       <div className="absolute left-0 top-0.5 z-10 bg-[#FAF9F5] text-claude-textSecondary">
         <Globe size={16} />
       </div>
       
       <div 
-        className="flex items-center justify-between mb-1.5 cursor-pointer group select-none py-0.5"
+        className="flex items-center justify-between mb-1 cursor-pointer group select-none py-0.5"
         onClick={() => setIsOpen(!isOpen)}
       >
         <div className="flex items-center gap-2 text-claude-textSecondary group-hover:text-claude-text transition-colors">
-          <span className="text-[14px] font-medium text-claude-text">{log.query}</span>
+          <span className="text-[13px] font-medium text-claude-text">{log.query}</span>
         </div>
         <div className="flex items-center gap-2 text-claude-textSecondary">
-            <span className="text-[12px]">{log.results.length} results</span>
+            <span className="text-[11px]">{log.results.length} results</span>
             <ChevronDown 
               size={14} 
               className={`transform transition-transform duration-200 ${isOpen ? 'rotate-180' : 'rotate-0'}`}
@@ -73,21 +73,21 @@ const SearchLogItem: React.FC<{ log: SearchLog; defaultOpen?: boolean }> = ({ lo
 
       {isOpen && (
         <div className="bg-[#F9F9F8] border border-[#E5E5E5] rounded-xl overflow-hidden shadow-sm mt-1">
-          <div className="max-h-[240px] overflow-y-auto overflow-x-hidden custom-scrollbar">
+          <div className="max-h-[180px] overflow-y-auto overflow-x-hidden custom-scrollbar">
             {log.results.map((result, rIndex) => (
               <a 
                 key={rIndex}
                 href={result.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#F0F0EE] transition-colors no-underline group border-b border-[#F0F0EE] last:border-b-0"
+                className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#F0F0EE] transition-colors no-underline group border-b border-[#F0F0EE] last:border-b-0"
               >
                 <Favicon url={result.url} />
                 <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <span className="text-[13px] text-[#333] font-medium truncate max-w-[70%] transition-colors">
+                  <span className="text-[12px] text-[#333] font-medium truncate max-w-[70%] transition-colors">
                     {result.title || result.url}
                   </span>
-                  <span className="text-[12px] text-[#888] truncate flex-shrink-0">
+                  <span className="text-[11px] text-[#888] truncate flex-shrink-0">
                     {new URL(result.url).hostname}
                   </span>
                 </div>
@@ -121,7 +121,7 @@ const SearchProcess: React.FC<SearchProcessProps> = ({ logs, isThinking, isDone 
   return (
     <div className="mb-4 font-sans">
       <div 
-        className="flex items-center gap-2 text-claude-textSecondary text-[15px] cursor-pointer hover:text-claude-text transition-colors select-none mb-2"
+        className="flex items-center gap-2 text-claude-textSecondary text-[13px] cursor-pointer hover:text-claude-text transition-colors select-none mb-2"
         onClick={() => setIsExpanded(!isExpanded)}
       >
         <ChevronDown 
@@ -148,7 +148,7 @@ const SearchProcess: React.FC<SearchProcessProps> = ({ logs, isThinking, isDone 
                 <Check size={16} />
               </div>
               <div className="flex items-center gap-2 text-claude-textSecondary">
-                <span className="text-[14px]">Done</span>
+                <span className="text-[13px]">Done</span>
               </div>
             </div>
           )}

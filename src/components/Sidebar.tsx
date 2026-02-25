@@ -15,6 +15,7 @@ import {
 } from './Icons';
 import claudeImg from '../assets/icons/claude.png';
 import searchIconImg from '../assets/icons/search-icon.png';
+import customizeIconImg from '../assets/icons/customize-icon.png';
 import { NAV_ITEMS } from '../constants';
 import { ChevronUp, Settings, HelpCircle, LogOut, Shield, CreditCard, Search } from 'lucide-react';
 import { getConversations, deleteConversation, updateConversation, getUser, getUserUsage, logout, getUserProfile } from '../api';
@@ -120,6 +121,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
   const [isAdmin, setIsAdmin] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [isRecentsCollapsed, setIsRecentsCollapsed] = useState(false);
+  const [isNewChatAnimating, setIsNewChatAnimating] = useState(false);
 
   const menuRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -139,6 +141,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
   };
 
   const handleNewChat = () => {
+    setIsNewChatAnimating(true);
+    setTimeout(() => setIsNewChatAnimating(false), 300);
     if (onNewChatClick) onNewChatClick();
     navigate('/');
   };
@@ -400,7 +404,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             <div className={`text-claude-text flex-shrink-0 flex items-center justify-center`}>
               <IconPlusCircle 
                 size={27} 
-                className="transition-all duration-200 group-hover:brightness-90 group-hover:scale-110 group-hover:-rotate-3" 
+                className={`transition-all duration-200 group-hover:brightness-90 ${isNewChatAnimating ? "rotate-90 scale-100" : "group-hover:scale-110 group-hover:-rotate-3"}`}
               />
             </div>
             <span
@@ -419,7 +423,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
             marginTop: '2px',
             paddingLeft: '9px',
             paddingRight: '9px',
-            marginBottom: '16px'
+            marginBottom: '2px'
           }}
         >
           <button
@@ -449,6 +453,43 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
           </button>
         </div>
 
+        {/* Customize - Fixed */}
+        <div
+          className="flex-shrink-0"
+          style={{
+            marginTop: '2px',
+            paddingLeft: '9px',
+            paddingRight: '9px',
+            marginBottom: '16px'
+          }}
+        >
+          <button
+            onClick={() => navigate('/customize')}
+            className={`w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors group overflow-hidden whitespace-nowrap ${location.pathname === '/customize' ? 'bg-claude-hover' : ''}`}
+            style={{
+              paddingTop: '2px',
+              paddingBottom: '2px',
+              paddingLeft: '0px',
+              gap: '8px'
+            }}
+          >
+            <div className={`text-claude-text flex-shrink-0 flex items-center justify-center`} style={{ width: '27px', height: '27px' }}>
+              <img
+                src={customizeIconImg}
+                alt="Customize"
+                style={{ width: '24px', height: '24px' }}
+                className="object-contain dark:invert transition-all duration-200 group-hover:brightness-90 group-hover:scale-110 group-hover:-rotate-3 group-active:rotate-12 group-active:scale-90"
+              />
+            </div>
+            <span
+              className={`font-medium leading-none mt-0.5 transition-opacity duration-200 text-left ${isCollapsed ? 'opacity-0 w-0 hidden' : 'opacity-100 block'}`}
+              style={{ fontSize: '15px' }}
+            >
+              Customize
+            </span>
+          </button>
+        </div>
+
         {/* Scrollable Area containing Nav and Recents */}
         <div
           ref={scrollRef}
@@ -468,9 +509,11 @@ const Sidebar = ({ isCollapsed, toggleSidebar, refreshTrigger, onNewChatClick, o
                 onClick={() => {
                   if (item.label === 'Chats') {
                     navigate('/chats');
+                  } else if (item.label === 'Projects') {
+                    navigate('/projects');
                   }
                 }}
-                className={`w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors font-medium group overflow-hidden whitespace-nowrap ${location.pathname === '/chats' && item.label === 'Chats' ? 'bg-claude-hover' : ''}`}
+                className={`w-full flex items-center justify-start text-claude-text hover:bg-claude-hover rounded-lg transition-colors font-medium group overflow-hidden whitespace-nowrap ${(location.pathname === '/chats' && item.label === 'Chats') || (location.pathname === '/projects' && item.label === 'Projects') ? 'bg-claude-hover' : ''}`}
                 style={{
                   paddingTop: '2px',
                   paddingBottom: '2px',
